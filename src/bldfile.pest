@@ -1,0 +1,20 @@
+valid_char = _{ LETTER | NUMBER | MARK | CONNECTOR_PUNCTUATION | DASH_PUNCTUATION | "/" | "\\" | "." }
+token = { valid_char+ }
+expr = { ("$(" ~ expr+  ~ ")") | valid_char+ }
+
+template = { "%" ~ "."? ~ valid_char* }
+
+implicit_var = { "$@" | "$^" }
+
+recipe_step = { "\t" ~ (implicit_var | expr)+ }
+
+recipe = {
+template ~ "<" ~ template* ~ NEWLINE ~ recipe_step+ }
+
+task = { expr ~ ":" ~ expr* }
+
+vardecl = { token ~ "=" ~ expr+ }
+
+file = { SOI ~ ((task | recipe | vardecl)? ~ NEWLINE)* ~ EOI }
+
+WHITESPACE = _{ " " }
