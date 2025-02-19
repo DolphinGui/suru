@@ -22,7 +22,7 @@ pub struct Task {
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Recipe {
     pub inputs: Vec<String>,
-    pub steps: Vec<String>,
+    pub steps: Vec<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -31,30 +31,30 @@ pub struct BldFile {
     pub recipes: HashMap<String, Recipe>,
 }
 
-pub fn parse(input: &str, mut context: HashMap<String, String>) -> BldFile {
+pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>) -> BldFile {
     let mut tasks = HashMap::new();
     let mut recipes = HashMap::new();
-    let mut v = BldParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
-    let a = v.next().unwrap_or_else(|| (panic!()));
-    for statement in a.into_inner() {
+    let mut input = BldParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
+    let file = input.next().unwrap_or_else(|| (panic!()));
+    for statement in file.into_inner() {
         match statement.as_rule() {
             Rule::task => {
                 let mut inners = statement.into_inner();
-                let task = eval_expr_str(
+                let task = fst(&eval_expr(
                     &inners.next().unwrap_or_else(|| panic!("match task fail")),
                     &context,
-                );
+                ));
                 match tasks.entry(task) {
                     Vacant(vacant) => {
                         vacant.insert(Task {
-                            inputs: inners.map(|n| eval_expr_str(&n, &context)).collect(),
+                            inputs: inners.flat_map(|n| eval_expr(&n, &context)).collect(),
                         });
                     }
                     Occupied(mut existing) => {
                         existing
                             .get_mut()
                             .inputs
-                            .extend(inners.map(|n| eval_expr_str(&n, &context)));
+                            .extend(inners.flat_map(|n| eval_expr(&n, &context)));
                     }
                 }
             }
@@ -72,16 +72,16 @@ pub fn parse(input: &str, mut context: HashMap<String, String>) -> BldFile {
     BldFile { tasks, recipes }
 }
 
-fn match_vardecl(var: &mut Pairs<Rule>, context: &mut HashMap<String, String>) {
+fn match_vardecl(var: &mut Pairs<Rule>, context: &mut HashMap<String, Vec<String>>) {
     let variable = var.next().unwrap_or_else(|| panic!("match vardecl fail"));
-    let mut result = String::new();
-    for expr in var {
-        eval_expr(&expr, context, &mut result);
-    }
+    let result = var.flat_map(|expr| eval_expr(&expr, context)).collect();
     context.insert(variable.as_str().to_string(), result);
 }
 
-fn match_recipe(recipe: &mut Pairs<Rule>, context: &HashMap<String, String>) -> (String, Recipe) {
+fn match_recipe(
+    recipe: &mut Pairs<Rule>,
+    context: &HashMap<String, Vec<String>>,
+) -> (String, Recipe) {
     let target = recipe
         .next()
         .unwrap_or_else(|| panic!("match template fail"));
@@ -91,11 +91,12 @@ fn match_recipe(recipe: &mut Pairs<Rule>, context: &HashMap<String, String>) -> 
         match stuff.as_rule() {
             Rule::template => inputs.push(remove_percent(stuff.as_str())),
             Rule::recipe_step => {
-                let mut out = String::new();
-                stuff
-                    .into_inner()
-                    .for_each(|e| match_step(&e, context, &mut out));
-                steps.push(out);
+                steps.push(
+                    stuff
+                        .into_inner()
+                        .flat_map(|e| match_step(&e, context))
+                        .collect(),
+                );
             }
             _ => panic!("This shouldn't happen"),
         }
@@ -103,7 +104,7 @@ fn match_recipe(recipe: &mut Pairs<Rule>, context: &HashMap<String, String>) -> 
     (remove_percent(target.as_str()), Recipe { inputs, steps })
 }
 
-fn remove_percent(file: &str) -> String{
+fn remove_percent(file: &str) -> String {
     let mut extension = file.to_string();
     if let Some(ext) = extension.find(".") {
         extension.drain(..ext);
@@ -111,25 +112,15 @@ fn remove_percent(file: &str) -> String{
     extension
 }
 
-fn match_step(step: &Pair<Rule>, context: &HashMap<String, String>, out: &mut String) {
+fn match_step(step: &Pair<Rule>, context: &HashMap<String, Vec<String>>) -> Vec<String> {
     match step.as_rule() {
-        Rule::expr => {
-            eval_expr(step, context, out);
-        }
-        Rule::implicit_var => {
-            append_string(out, step.as_str());
-        }
+        Rule::expr => eval_expr(step, context),
+        Rule::implicit_var => vec![step.as_str().to_string()],
         _ => panic!("This shouldn't happen"),
     }
 }
 
-fn eval_expr_str(expr: &Pair<Rule>, context: &HashMap<String, String>) -> String {
-    let mut n = String::new();
-    eval_expr(expr, context, &mut n);
-    n
-}
-
-fn eval_expr(expr: &Pair<Rule>, context: &HashMap<String, String>, result: &mut String) {
+fn eval_expr(expr: &Pair<Rule>, context: &HashMap<String, Vec<String>>) -> Vec<String> {
     assert!(expr.as_rule() == Rule::expr);
     let mut insides = expr.clone().into_inner();
     let inside = insides.next();
@@ -137,20 +128,23 @@ fn eval_expr(expr: &Pair<Rule>, context: &HashMap<String, String>, result: &mut 
         let others = insides;
         if others.len() != 0 {
             let a = others
-                .map(|a| eval_expr_str(&a, context))
+                .flat_map(|a| eval_expr(&a, context))
                 .collect::<Vec<_>>();
-            eval_function(first.as_str(), &a, result)
+            eval_function(first.as_str(), &a)
         } else {
-            append_string(
-                result,
-                context
-                    .get(first.as_str())
-                    .expect(&format!("Variable {} not found", first.as_str())),
-            );
+            context
+                .get(first.as_str())
+                .expect(&format!("Variable {} not found", first.as_str()))
+                .clone()
         }
     } else {
-        append_string(result, expr.as_str());
+        vec![expr.as_str().to_string()]
     }
+}
+
+fn fst(vec: &Vec<String>) -> String {
+    assert!(vec.len() == 1);
+    vec[0].clone()
 }
 
 mod test {
@@ -160,7 +154,13 @@ mod test {
     fn try_parse() {
         let f = include_str!("tasks.bld");
         let mut context = HashMap::new();
-        context.insert("LINKFLAGS".into(), "-MMD -lto -O3".into());
+        context.insert(
+            "LINKFLAGS".into(),
+            vec!["-MMD", "-lto", "-O3"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        );
         let result = parse(f, context);
         let expected = BldFile {
             tasks: HashMap::from([(
@@ -173,7 +173,10 @@ mod test {
                 ".exe".into(),
                 Recipe {
                     inputs: vec![".input".to_string()],
-                    steps: vec!["gcc -o $@ $^ -O3 -MMD -LTO -O3".to_string()],
+                    steps: vec![vec!["gcc", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3"]
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect()],
                 },
             )]),
         };
