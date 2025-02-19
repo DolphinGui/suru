@@ -1,16 +1,14 @@
 use std::collections::HashSet;
 use std::{collections::HashMap, hash::Hash};
 
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-
 use pest::{
     iterators::{Pair, Pairs},
     Parser,
 };
 use pest_derive::Parser;
 
+use crate::functions::eval_function;
 use crate::util::remove_prefix;
-use crate::{functions::eval_function, util::append_string};
 
 #[derive(Parser)]
 #[grammar = "bldfile.pest"]
@@ -27,15 +25,14 @@ pub struct Recipe {
     pub steps: Vec<Vec<String>>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct BldFile {
     pub tasks: HashMap<String, Task>,
     pub recipes: HashMap<String, Vec<Recipe>>,
 }
 
-pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>) -> BldFile {
-    let mut tasks = HashMap::<String, Task>::new();
-    let mut recipes: HashMap<String, Vec<Recipe>> = HashMap::new();
+pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>, base: &mut BldFile) {
+    let BldFile { tasks, recipes } = base;
     let mut input = BldParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
     let file = input.next().unwrap_or_else(|| (panic!()));
     for statement in file.into_inner() {
@@ -62,7 +59,6 @@ pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>) -> BldFile 
             unknown => panic!("This should never occur {:?}", unknown),
         }
     }
-    BldFile { tasks, recipes }
 }
 
 fn match_vardecl(var: &mut Pairs<Rule>, context: &mut HashMap<String, Vec<String>>) {
@@ -148,7 +144,9 @@ mod test {
                 .map(|s| s.to_string())
                 .collect(),
         );
-        let result = parse(f, context);
+
+        let mut result = BldFile::default();
+        parse(f, context, &mut result);
         let expected = BldFile {
             tasks: HashMap::from([(
                 "a.exe".into(),
@@ -227,10 +225,12 @@ mod test {
         }
     }
 
+    #[cfg(test)]
     fn make_svec(s: &[&str]) -> Vec<String> {
         s.iter().map(|s| s.to_string()).collect()
     }
 
+    #[cfg(test)]
     fn make_sset(s: &[&str]) -> HashSet<String> {
         let mut h = HashSet::new();
         h.reserve(s.len());
