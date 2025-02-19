@@ -1,4 +1,4 @@
-valid_char = _{ LETTER | NUMBER | MARK | CONNECTOR_PUNCTUATION | DASH_PUNCTUATION | "/" | "\\" | "." }
+valid_char = _{ LETTER | NUMBER | MARK | CONNECTOR_PUNCTUATION | DASH_PUNCTUATION | MATH_SYMBOL | "/" | "\\" | "." }
 ws = _{ " " }
 token = { valid_char+ }
 expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | valid_char+ }

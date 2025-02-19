@@ -30,12 +30,12 @@ pub struct Recipe {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BldFile {
     pub tasks: HashMap<String, Task>,
-    pub recipes: HashMap<String, Recipe>,
+    pub recipes: HashMap<String, Vec<Recipe>>,
 }
 
 pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>) -> BldFile {
-    let mut tasks = HashMap::new();
-    let mut recipes = HashMap::new();
+    let mut tasks = HashMap::<String, Task>::new();
+    let mut recipes: HashMap<String, Vec<Recipe>> = HashMap::new();
     let mut input = BldParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
     let file = input.next().unwrap_or_else(|| (panic!()));
     for statement in file.into_inner() {
@@ -46,23 +46,14 @@ pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>) -> BldFile 
                     &inners.next().unwrap_or_else(|| panic!("match task fail")),
                     &context,
                 ));
-                match tasks.entry(task) {
-                    Vacant(vacant) => {
-                        vacant.insert(Task {
-                            inputs: inners.flat_map(|n| eval_expr(&n, &context)).collect(),
-                        });
-                    }
-                    Occupied(mut existing) => {
-                        existing
-                            .get_mut()
-                            .inputs
-                            .extend(inners.flat_map(|n| eval_expr(&n, &context)));
-                    }
-                }
+                let t = tasks.entry(task).or_default();
+                inners
+                    .map(|n| eval_expr(&n, &context))
+                    .for_each(|mut v| t.inputs.append(&mut v));
             }
             Rule::recipe => {
                 let (r, s) = match_recipe(&mut statement.into_inner(), &context);
-                recipes.insert(r, s);
+                recipes.entry(r).or_default().push(s);
             }
             Rule::vardecl => {
                 match_vardecl(&mut statement.into_inner(), &mut context);
@@ -162,22 +153,25 @@ mod test {
             tasks: HashMap::from([(
                 "a.exe".into(),
                 Task {
-                    inputs: vec!["main.o".to_string(), "../folder/f.o".to_string()],
+                    inputs: make_svec(&["main.o", "../folder/f.o"]),
                 },
             )]),
             recipes: HashMap::from([(
                 ".exe".into(),
-                Recipe {
-                    inputs: (|| {
-                        let mut h = HashSet::new();
-                        h.insert(".input".into());
-                        h
-                    })(),
-                    steps: vec![vec!["gcc", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3"]
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect()],
-                },
+                vec![
+                    Recipe {
+                        inputs: make_sset(&[".c"]),
+                        steps: vec![make_svec(&[
+                            "gcc", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
+                        ])],
+                    },
+                    Recipe {
+                        inputs: make_sset(&[".cpp"]),
+                        steps: vec![make_svec(&[
+                            "g++", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
+                        ])],
+                    },
+                ],
             )]),
         };
         assert!(
@@ -231,5 +225,18 @@ mod test {
         for p in v {
             println!("[{:?}]", p);
         }
+    }
+
+    fn make_svec(s: &[&str]) -> Vec<String> {
+        s.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn make_sset(s: &[&str]) -> HashSet<String> {
+        let mut h = HashSet::new();
+        h.reserve(s.len());
+        for st in s.iter().map(|s| s.to_string()) {
+            h.insert(st);
+        }
+        h
     }
 }
