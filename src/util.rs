@@ -1,6 +1,7 @@
-
-pub fn append_string(s: &mut String, end: &str){
+pub fn append_string(s: &mut String, end: &str) {
     s.reserve(end.len() + 1);
-    s.push(' ');
+    if !s.is_empty() {
+        s.push(' ');
+    }
     s.push_str(end);
 }

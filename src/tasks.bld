@@ -3,4 +3,4 @@ SOMEVARIABLE = $(upper $(LINKFLAGS))
 a.exe: main.o ../folder/f.o
 
 %.exe < %.input
-	gcc.exe -o $@ $^ -O3 $(CCFLAGS) $(LINKFLAGS)
+	gcc.exe -o $@ $^ -O3 $(LINKFLAGS)
