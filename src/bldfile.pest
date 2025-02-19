@@ -1,20 +1,20 @@
 valid_char = _{ LETTER | NUMBER | MARK | CONNECTOR_PUNCTUATION | DASH_PUNCTUATION | "/" | "\\" | "." }
+ws = _{ " " }
 token = { valid_char+ }
-expr = { ("$(" ~ expr+  ~ ")") | valid_char+ }
+expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | valid_char+ }
 
-template = { "%" ~ "."? ~ valid_char* }
+template = @{ "%" ~ "."? ~ valid_char* }
 
 implicit_var = { "$@" | "$^" }
 
-recipe_step = { "\t" ~ (implicit_var | expr)+ }
+recipe_step = { "\t" ~ (ws* ~(implicit_var | expr))+ }
 
 recipe = {
-template ~ "<" ~ template* ~ NEWLINE ~ recipe_step+ }
+template ~ ws* ~ "<" ~ (ws* ~ template ~ ws*)* ~ (NEWLINE ~ recipe_step)+ }
 
-task = { expr ~ ":" ~ expr* }
+task = { expr ~ ws* ~ ":" ~ (ws* ~ expr)* }
 
-vardecl = { token ~ "=" ~ expr+ }
+vardecl = { token ~ ws* ~ "=" ~ ws* ~ expr+ }
 
-file = { SOI ~ ((task | recipe | vardecl)? ~ NEWLINE)* ~ EOI }
+file = { SOI ~ ws* ~ ((task | recipe | vardecl)? ~ NEWLINE)* ~ ws* ~ EOI }
 
-WHITESPACE = _{ " " }

@@ -6,7 +6,7 @@ use pest::{
 };
 use pest_derive::Parser;
 
-use crate::functions::eval_function;
+use crate::{functions::eval_function, util::append_string};
 
 #[derive(Parser)]
 #[grammar = "bldfile.pest"]
@@ -23,42 +23,41 @@ pub struct Recipe {
     steps: Vec<String>,
 }
 
-#[derive(Default, Debug, PartialEq, Eq, Hash)]
-pub struct Variable(String);
 
 #[derive(Debug)]
 pub struct BldFile {
     tasks: HashMap<String, Task>,
     recipes: HashMap<String, Recipe>,
-    context: HashMap<Variable, String>,
+    context: HashMap<String, String>,
 }
 
 pub fn parse(input: &str) {
     let mut context = HashMap::new();
     let mut tasks = HashMap::new();
-    context.insert(Variable("LINKFLAGS".into()), "-MMD -lto -O3".into()); // todo move this later
+    context.insert("LINKFLAGS".into(), "-MMD -lto -O3".into()); // todo move this later
     let mut v = BldParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
     let a = v.next().unwrap_or_else(|| (panic!()));
     for statement in a.into_inner() {
         match statement.as_rule() {
             Rule::task => {
                 let mut inners = statement.into_inner();
-                let task = eval_expr(
+                let task = eval_expr_str(
                     inners.next().unwrap_or_else(|| panic!("match task fail")),
                     &context,
                 );
                 tasks.insert(
                     task,
                     Task {
-                        inputs: inners.map(|n| eval_expr(n, &context)).collect(),
+                        inputs: inners.map(|n| eval_expr_str(n, &context)).collect(),
                     },
                 );
             }
             Rule::recipe => {
-                println!("Evaluating recipe: {:?}", statement)
+                // println!("Evaluating recipe: {:?}", statement)
             }
             Rule::vardecl => {
                 match_vardecl(&mut statement.into_inner(), &mut context);
+                println!("context {:?}", context);
             }
             Rule::EOI => {}
             unknown => panic!("This should never occur {:?}", unknown),
@@ -66,17 +65,16 @@ pub fn parse(input: &str) {
     }
 }
 
-fn match_vardecl(var: &mut Pairs<Rule>, context: &mut HashMap<Variable, String>) {
+fn match_vardecl(var: &mut Pairs<Rule>, context: &mut HashMap<String, String>) {
     let variable = var.next().unwrap_or_else(|| panic!("match vardecl fail"));
     let mut result = String::new();
     for expr in var {
-        result.push_str(&eval_expr(expr, context));
-        result.push(' ');
+        eval_expr(expr, context, &mut result);
     }
-    context.insert(Variable(variable.as_str().to_string()), result);
+    context.insert(variable.as_str().to_string(), result);
 }
 
-fn match_recipe(r: &mut Pairs<Rule>, context: &HashMap<Variable, String>) -> Recipe {
+fn match_recipe(r: &mut Pairs<Rule>, context: &HashMap<String, String>) -> Recipe {
     let target = r.next().unwrap_or_else(|| panic!("match template fail"));
     let mut inputs = Vec::new();
     let mut steps = Vec::new();
@@ -84,30 +82,49 @@ fn match_recipe(r: &mut Pairs<Rule>, context: &HashMap<Variable, String>) -> Rec
         match stuff.as_rule() {
             Rule::template => inputs.push(stuff.as_str().into()),
             Rule::recipe_step => {
-                steps.push(eval_expr(stuff, context))
-            },
+                let mut out = String::new();
+                eval_expr(stuff, context, &mut out);
+                steps.push(out);
+            }
             _ => panic!("This shouldn't happen"),
         }
     }
     Recipe { inputs, steps }
 }
 
-fn eval_expr(expr: Pair<Rule>, context: &HashMap<Variable, String>) -> String {
+fn match_step(step: &mut Pair<Rule>, context: &HashMap<String, String>, out: &mut String){
+    match step.as_rule(){
+        Rule::expr => {
+            // evals_expr(expr, context, result);
+        },
+        Rule::implicit_var => {
+            append_string(out, step.as_str());
+        },
+        _ => panic!("This shouldn't happen"),
+    }
+}
+
+fn eval_expr_str(expr: Pair<Rule>, context: &HashMap<String, String>) -> String {
+    let mut n = String::new();
+    eval_expr(expr, context, &mut n);
+    n
+}
+
+fn eval_expr(expr: Pair<Rule>, context: &HashMap<String, String>, result: &mut String) {
     assert!(expr.as_rule() == Rule::expr);
     let mut insides = expr.clone().into_inner();
     let inside = insides.next();
     if let Some(first) = inside {
-        let others: Vec<_> = insides.map(|e| eval_expr(e, context)).collect();
+        let others = insides;
+        println!("insides: {:?}", others);
         if others.len() != 0 {
-            eval_function(first.as_str(), &others)
+            let a = others.map(|a| eval_expr_str(a, context)).collect::<Vec<_>>();
+            eval_function(first.as_str(), &a, result)
         } else {
-            context
-                .get(&Variable(first.as_str().to_string()))
-                .expect("Undefined variable")
-                .clone()
+            *result = context.get(first.as_str()).expect("Variable not found").clone();
         }
     } else {
-        expr.as_str().to_string()
+        append_string(result, expr.as_str());
     }
 }
 
@@ -131,7 +148,7 @@ mod test {
 
     #[test]
     fn parse_expr() {
-        let var = "$(abc)";
+        let var = "$(upper $(FLAGS))";
         let mut v = BldParser::parse(Rule::expr, var).unwrap_or_else(|e| panic!("{}", e));
         let pair = v.next();
         println!("{:?}", pair);
