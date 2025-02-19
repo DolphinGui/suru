@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{collections::HashMap, hash::Hash};
 
 use std::collections::hash_map::Entry::{Occupied, Vacant};
@@ -8,6 +9,7 @@ use pest::{
 };
 use pest_derive::Parser;
 
+use crate::util::remove_prefix;
 use crate::{functions::eval_function, util::append_string};
 
 #[derive(Parser)]
@@ -21,7 +23,7 @@ pub struct Task {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Recipe {
-    pub inputs: Vec<String>,
+    pub inputs: HashSet<String>,
     pub steps: Vec<Vec<String>>,
 }
 
@@ -85,11 +87,13 @@ fn match_recipe(
     let target = recipe
         .next()
         .unwrap_or_else(|| panic!("match template fail"));
-    let mut inputs = Vec::new();
+    let mut inputs = HashSet::new();
     let mut steps = Vec::new();
     for stuff in recipe {
         match stuff.as_rule() {
-            Rule::template => inputs.push(remove_percent(stuff.as_str())),
+            Rule::template => {
+                inputs.insert(remove_prefix(stuff.as_str()));
+            }
             Rule::recipe_step => {
                 steps.push(
                     stuff
@@ -101,15 +105,7 @@ fn match_recipe(
             _ => panic!("This shouldn't happen"),
         }
     }
-    (remove_percent(target.as_str()), Recipe { inputs, steps })
-}
-
-fn remove_percent(file: &str) -> String {
-    let mut extension = file.to_string();
-    if let Some(ext) = extension.find(".") {
-        extension.drain(..ext);
-    }
-    extension
+    (remove_prefix(target.as_str()), Recipe { inputs, steps })
 }
 
 fn match_step(step: &Pair<Rule>, context: &HashMap<String, Vec<String>>) -> Vec<String> {
@@ -172,7 +168,11 @@ mod test {
             recipes: HashMap::from([(
                 ".exe".into(),
                 Recipe {
-                    inputs: vec![".input".to_string()],
+                    inputs: (|| {
+                        let mut h = HashSet::new();
+                        h.insert(".input".into());
+                        h
+                    })(),
                     steps: vec![vec!["gcc", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3"]
                         .iter()
                         .map(|s| s.to_string())

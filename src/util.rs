@@ -5,3 +5,11 @@ pub fn append_string(s: &mut String, end: &str) {
     }
     s.push_str(end);
 }
+
+pub fn remove_prefix(file: &str) -> String {
+    let mut extension = file.to_string();
+    if let Some(ext) = extension.find(".") {
+        extension.drain(..ext);
+    }
+    extension
+}

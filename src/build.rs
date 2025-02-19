@@ -1,38 +1,54 @@
-use std::{collections::HashMap, ffi::OsStr, fs::File, path::Path, time::SystemTime};
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 
-use crate::parser::{BldFile, Recipe, Task};
+use threadpool::ThreadPool;
 
-pub fn compile(input: BldFile, rootdir: &Path) {
-    for (filename, task) in input.tasks {
-        run_task(Path::new(&filename), task, &input.recipes, rootdir);
-    }
+use crate::{
+    parser::{BldFile, Recipe, Task},
+    util::remove_prefix,
+};
+
+struct Context<'a> {
+    recipes: &'a HashMap<String, Recipe>,
+    tasks: &'a HashMap<String, Task>,
+    rootdir: &'a Path,
+    runner: &'a ThreadPool,
 }
 
-fn run_task(target: &Path, task: Task, recipes: &HashMap<String, Recipe>, rootdir: &Path) {
-
-    // if needs_compiling {
-    //     let recipe = target
-    //         .extension()
-    //         .or(Some(OsStr::new("%")))
-    //         .and_then(|a| a.to_str())
-    //         .and_then(|ext| recipes.get(ext))
-    //         .expect(&format!("Failed to lookup recipe for {:?}", target));
-
-    // }
+struct Target{
+    command: (String, Vec<String>),
+    dependencies: Vec<Box<Target>>
 }
 
-fn needs_compiling(file: &Path, dependencies: &[&Path]) -> bool {
-    if !std::fs::exists(file).expect(&format!("Unable to determine existance of file {:?}", file)) {
-        return true;
-    }
-    let time = get_modified(file);
-    for dep in dependencies {
-        if time < get_modified(dep) {
+pub fn compile(input: BldFile, rootdir: &Path, threads: usize) {
+    let runner = ThreadPool::new(threads);
+
+}
+
+fn parse_task(){}
+
+fn eval_expr(s: &str) {}
+
+fn filter<'a, T>(s: &str, filters: T) -> bool
+where
+    T: Iterator<Item = &'a String>,
+{
+    for filter in filters {
+        if filter == "%" {
             return true;
+        }
+        match s.find(filter) {
+            Some(_) => return true,
+            None => continue,
         }
     }
     false
 }
+
 
 fn get_modified(file: &Path) -> SystemTime {
     std::fs::metadata(file)
