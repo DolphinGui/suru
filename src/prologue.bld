@@ -1,0 +1,2 @@
+%.o < %.input
+	gcc -o $@ $^ -O3 $(LINKFLAGS)

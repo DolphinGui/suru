@@ -1,5 +1,7 @@
 use std::{collections::HashMap, hash::Hash};
 
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+
 use pest::{
     iterators::{Pair, Pairs},
     Parser,
@@ -14,20 +16,19 @@ struct BldParser;
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Task {
-    inputs: Vec<String>,
+    pub inputs: Vec<String>,
 }
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Recipe {
-    inputs: Vec<String>,
-    steps: Vec<String>,
+    pub inputs: Vec<String>,
+    pub steps: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BldFile {
-    tasks: HashMap<String, Task>,
-    recipes: HashMap<String, Recipe>,
-    context: HashMap<String, String>,
+    pub tasks: HashMap<String, Task>,
+    pub recipes: HashMap<String, Recipe>,
 }
 
 pub fn parse(input: &str, mut context: HashMap<String, String>) -> BldFile {
@@ -43,12 +44,19 @@ pub fn parse(input: &str, mut context: HashMap<String, String>) -> BldFile {
                     &inners.next().unwrap_or_else(|| panic!("match task fail")),
                     &context,
                 );
-                tasks.insert(
-                    task,
-                    Task {
-                        inputs: inners.map(|n| eval_expr_str(&n, &context)).collect(),
-                    },
-                );
+                match tasks.entry(task) {
+                    Vacant(vacant) => {
+                        vacant.insert(Task {
+                            inputs: inners.map(|n| eval_expr_str(&n, &context)).collect(),
+                        });
+                    }
+                    Occupied(mut existing) => {
+                        existing
+                            .get_mut()
+                            .inputs
+                            .extend(inners.map(|n| eval_expr_str(&n, &context)));
+                    }
+                }
             }
             Rule::recipe => {
                 let (r, s) = match_recipe(&mut statement.into_inner(), &context);
@@ -61,11 +69,7 @@ pub fn parse(input: &str, mut context: HashMap<String, String>) -> BldFile {
             unknown => panic!("This should never occur {:?}", unknown),
         }
     }
-    BldFile {
-        context,
-        tasks,
-        recipes,
-    }
+    BldFile { tasks, recipes }
 }
 
 fn match_vardecl(var: &mut Pairs<Rule>, context: &mut HashMap<String, String>) {
@@ -85,7 +89,7 @@ fn match_recipe(recipe: &mut Pairs<Rule>, context: &HashMap<String, String>) -> 
     let mut steps = Vec::new();
     for stuff in recipe {
         match stuff.as_rule() {
-            Rule::template => inputs.push(stuff.as_str().into()),
+            Rule::template => inputs.push(remove_percent(stuff.as_str())),
             Rule::recipe_step => {
                 let mut out = String::new();
                 stuff
@@ -96,7 +100,15 @@ fn match_recipe(recipe: &mut Pairs<Rule>, context: &HashMap<String, String>) -> 
             _ => panic!("This shouldn't happen"),
         }
     }
-    (target.as_str().into(), Recipe { inputs, steps })
+    (remove_percent(target.as_str()), Recipe { inputs, steps })
+}
+
+fn remove_percent(file: &str) -> String{
+    let mut extension = file.to_string();
+    if let Some(ext) = extension.find(".") {
+        extension.drain(..ext);
+    }
+    extension
 }
 
 fn match_step(step: &Pair<Rule>, context: &HashMap<String, String>, out: &mut String) {
@@ -148,7 +160,7 @@ mod test {
     fn try_parse() {
         let f = include_str!("tasks.bld");
         let mut context = HashMap::new();
-        context.insert("LINKFLAGS".into(), "-MMD -lto -O3".into()); // todo move this later
+        context.insert("LINKFLAGS".into(), "-MMD -lto -O3".into());
         let result = parse(f, context);
         let expected = BldFile {
             tasks: HashMap::from([(
@@ -158,18 +170,19 @@ mod test {
                 },
             )]),
             recipes: HashMap::from([(
-                "%.exe".into(),
+                ".exe".into(),
                 Recipe {
-                    inputs: vec!["%.input".to_string()],
-                    steps: vec!["gcc.exe -o $@ $^ -O3 -MMD -lto -O3".to_string()],
+                    inputs: vec![".input".to_string()],
+                    steps: vec!["gcc -o $@ $^ -O3 -MMD -LTO -O3".to_string()],
                 },
             )]),
-            context: HashMap::from([
-                ("LINKFLAGS".into(), "-MMD -lto -O3".into()),
-                ("SOMEVARIABLE".into(), "-MMD -LTO -O3".into()),
-            ]),
         };
-        assert!(result == expected);
+        assert!(
+            result == expected,
+            "Expected is not equal parsed,\n got {:?},\n expected {:?}",
+            result,
+            expected
+        );
     }
 
     #[test]
