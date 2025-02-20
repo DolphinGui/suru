@@ -4,12 +4,18 @@ a.exe: main.o lib.o
 
 main.o: main.cpp lib.h
 
-lib.o: lib.cpp lib.h
+lib.o: lib.c lib.h
 
 lib.h: lib.h.in
 
-%.exe < %.c
+%.o < %.c
 	gcc -o $@ $^ -O3 $(SOMEVARIABLE)
 
-%.exe < %.cpp
+%.o < %.cpp
 	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
+
+%.exe < %.o
+	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
+
+%.h < %.h.in
+	python generate headers please
