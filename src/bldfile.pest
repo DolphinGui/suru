@@ -3,7 +3,7 @@ ws = _{ " " }
 token = { valid_char+ }
 expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | valid_char+ }
 
-template = @{ "%" ~ "."? ~ valid_char* }
+template = { "%" ~ valid_char* }
 
 implicit_var = { "$@" | "$^" }
 

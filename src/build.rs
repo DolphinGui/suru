@@ -1,113 +1,89 @@
 use std::{
-    borrow::Borrow,
-    cell::{Ref, RefCell},
-    collections::{
-        hash_map::Entry::{Occupied, Vacant},
-        HashMap, HashSet,
-    },
-    ffi::OsStr,
-    hash::Hash,
-    path::{Path, PathBuf},
-    rc::Rc,
-    time::SystemTime,
+    collections::HashMap,
+    fmt::Debug,
+    path::Path,
+    sync::{Arc, RwLock},
 };
 
 use threadpool::ThreadPool;
 
-use crate::{
-    parser::{BldFile, Recipe, Task},
-    util::remove_prefix,
-};
+use crate::parser::{BldFile, Task};
 
-struct Context<'a> {
-    recipes: &'a HashMap<String, Recipe>,
-    tasks: &'a HashMap<String, Task>,
-    rootdir: &'a Path,
-    runner: &'a ThreadPool,
-}
-
-#[derive(Debug, PartialEq, Eq)]
 enum Dependency {
-    Compiled(DynTarget),
+    Compiled((String, DynTarget)),
     Source(String),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl Debug for Dependency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Compiled((filename, t)) => {
+                write!(f, "cmp {}", filename)
+            }
+            Self::Source(filename) => write!(f, "src {}", filename),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct Target {
     dependencies: Vec<Dependency>,
     is_dep: bool,
 }
 
-type DynTarget = Rc<RefCell<Target>>;
+type DynTarget = Arc<RwLock<Target>>;
 
-pub fn compile(input: BldFile, rootdir: &Path, threads: usize) {
-    let runner = ThreadPool::new(threads);
+pub fn compile(input: BldFile) {
+    let roots = get_roots(input.tasks);
 
+    println!("{} roots: {:?}", roots.len(), roots);
+    // let runner = ThreadPool::new(threads);
+}
+
+fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, DynTarget)> {
     let unprocessed: HashMap<String, DynTarget> =
-        HashMap::from_iter(input.tasks.into_iter().map(|(file, deps)| {
+        HashMap::from_iter(tasks.into_iter().map(|(file, deps)| {
             (
                 file,
-                Rc::new(RefCell::new(Target {
+                Arc::new(RwLock::new(Target {
                     dependencies: deps.inputs.into_iter().map(Dependency::Source).collect(),
                     is_dep: false,
                 })),
             )
         }));
 
-    let mut roots: HashMap<String, DynTarget> = Default::default();
     for (target_file, target_deps) in &unprocessed {
-        for (_, deps) in &roots {
-            if update_deps(&target_file, &target_deps, &mut deps.borrow_mut()) {
-                target_deps.borrow_mut().is_dep = true;
-            }
+        for (_, deps) in &unprocessed {
+            let mut n = deps.write().expect("This section is single-threaded");
+            update_deps(&target_file, &target_deps, &mut n)
         }
-        let target_deps: &mut Target = &mut target_deps.borrow_mut();
-        for target_dep in &mut target_deps.dependencies {
-            if let Dependency::Source(s) = target_dep{
-                
+        let mut n = target_deps
+            .write()
+            .expect("This section is single-threaded");
+
+        for target_dep in &mut n.dependencies {
+            if let Dependency::Source(file) = target_dep {
+                if let Some(t) = unprocessed.get(file) {
+                    t.write().expect("This is single threaded").is_dep = true;
+                    *target_dep = Dependency::Compiled((file.to_string(), t.clone()));
+                }
             }
         }
     }
+
+    unprocessed
+        .into_iter()
+        .filter(|(_, b)| !b.read().unwrap().is_dep)
+        .collect()
 }
 
-fn update_deps(s: &str, t: &DynTarget, root: &mut Target) -> bool {
-    let mut updated = false;
-    for dep in root.dependencies.iter_mut() {
+fn update_deps(depname: &str, deptarget: &DynTarget, target: &mut Target) {
+    for dep in &mut target.dependencies {
         if let Dependency::Source(file) = dep {
-            if s == file {
-                *dep = Dependency::Compiled(t.clone());
-                updated = true;
+            if depname == file {
+                deptarget.write().expect("singled threaded only").is_dep = true;
+                *dep = Dependency::Compiled((depname.to_string(), deptarget.clone()));
             }
         }
     }
-    updated
-}
-
-// fn
-
-fn parse_task() {}
-
-fn eval_expr(s: &str) {}
-
-fn filter<'a, T>(s: &str, filters: T) -> bool
-where
-    T: Iterator<Item = &'a String>,
-{
-    for filter in filters {
-        if filter == "%" {
-            return true;
-        }
-        match s.find(filter) {
-            Some(_) => return true,
-            None => continue,
-        }
-    }
-    false
-}
-
-fn get_modified(file: &Path) -> SystemTime {
-    std::fs::metadata(file)
-        .expect(&format!("Unable to get metadata for file {:?}", file))
-        .modified()
-        .expect("Unable to access last modification time.")
 }
