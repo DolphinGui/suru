@@ -2,33 +2,18 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     path::Path,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use threadpool::ThreadPool;
 
 use crate::parser::{BldFile, Task};
 
-enum Dependency {
-    Compiled((String, DynTarget)),
-    Source(String),
-}
-
-impl Debug for Dependency {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Compiled((filename, t)) => {
-                write!(f, "cmp {}", filename)
-            }
-            Self::Source(filename) => write!(f, "src {}", filename),
-        }
-    }
-}
-
 #[derive(Debug)]
 struct Target {
-    dependencies: Vec<Dependency>,
-    is_dep: bool,
+    dependencies: Vec<String>,
+    dependents: Vec<DynTarget>,
+    is_branch: bool,
 }
 
 type DynTarget = Arc<RwLock<Target>>;
@@ -40,50 +25,42 @@ pub fn compile(input: BldFile) {
     // let runner = ThreadPool::new(threads);
 }
 
+fn write(d: &DynTarget) -> RwLockWriteGuard<'_, Target> {
+    d.write().expect("This section is single threaded")
+}
+fn read(d: &DynTarget) -> RwLockReadGuard<'_, Target> {
+    d.read().expect("This section is single threaded")
+}
+
 fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, DynTarget)> {
     let unprocessed: HashMap<String, DynTarget> =
         HashMap::from_iter(tasks.into_iter().map(|(file, deps)| {
             (
                 file,
                 Arc::new(RwLock::new(Target {
-                    dependencies: deps.inputs.into_iter().map(Dependency::Source).collect(),
-                    is_dep: false,
+                    dependencies: deps.inputs.into_iter().collect(),
+                    dependents: Default::default(),
+                    is_branch: false,
                 })),
             )
         }));
 
-    for (target_file, target_deps) in &unprocessed {
-        for (_, deps) in &unprocessed {
-            let mut n = deps.write().expect("This section is single-threaded");
-            update_deps(&target_file, &target_deps, &mut n)
-        }
-        let mut n = target_deps
-            .write()
-            .expect("This section is single-threaded");
-
-        for target_dep in &mut n.dependencies {
-            if let Dependency::Source(file) = target_dep {
-                if let Some(t) = unprocessed.get(file) {
-                    t.write().expect("This is single threaded").is_dep = true;
-                    *target_dep = Dependency::Compiled((file.to_string(), t.clone()));
-                }
+    for (_, target_deps) in &unprocessed {
+        let mut td = write(target_deps);
+        let mut is_branch = false;
+        for dep in td.dependencies.iter() {
+            if let Some(d) = unprocessed.get(dep) {
+                write(d).dependents.push(target_deps.clone());
+                is_branch = true;
             }
+        }
+        if is_branch {
+            td.is_branch = true;
         }
     }
 
     unprocessed
         .into_iter()
-        .filter(|(_, b)| !b.read().unwrap().is_dep)
+        .filter(|(_, b)| !read(b).is_branch)
         .collect()
-}
-
-fn update_deps(depname: &str, deptarget: &DynTarget, target: &mut Target) {
-    for dep in &mut target.dependencies {
-        if let Dependency::Source(file) = dep {
-            if depname == file {
-                deptarget.write().expect("singled threaded only").is_dep = true;
-                *dep = Dependency::Compiled((depname.to_string(), deptarget.clone()));
-            }
-        }
-    }
 }
