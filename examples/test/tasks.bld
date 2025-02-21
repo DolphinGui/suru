@@ -1,0 +1,21 @@
+SOMEVARIABLE = $(LINKFLAGS)
+
+a.exe: main.o lib.o
+
+main.o: main.cpp lib.h
+
+lib.o: lib.c lib.h
+
+lib.h: lib.h.in
+
+%.o < %.c
+	gcc -c -o $@ $^ $(SOMEVARIABLE) -I $br
+
+%.o < %.cpp
+	g++ -c -o $@ $^ -O3 $(SOMEVARIABLE) -I $br
+
+%.exe < %.o
+	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
+
+%.h < %.h.in
+	./makeheader.sh $^ $@

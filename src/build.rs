@@ -1,5 +1,15 @@
+use std::sync::atomic::Ordering::Relaxed;
 use std::{
-    cell::LazyCell, collections::HashMap, fmt::Debug, path::Path, sync::{Arc, Once, RwLock, RwLockReadGuard, RwLockWriteGuard}, thread::Thread, time::Duration
+    cell::LazyCell,
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    fmt::Debug,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    str::FromStr,
+    sync::{atomic::AtomicBool, Arc, Once, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    thread::Thread,
+    time::Duration,
 };
 
 use threadpool::ThreadPool;
@@ -22,22 +32,30 @@ type Dependent = Arc<(String, DynTarget, Once)>;
 pub fn compile(input: BldFile) {
     let roots = get_roots(input.tasks);
 
-    println!("{} roots: {:?}", roots.len(), roots);
-    let runner = Box::leak(Box::new(ThreadPool::new(num_cpus::get_physical()))) as &ThreadPool;
+    let runner = leak(ThreadPool::new(num_cpus::get_physical()));
 
-    let recipes = Box::leak(Box::new(input.recipes)) as &HashMap<String, Vec<Recipe>>;
+    let recipes = leak(input.recipes);
+
+    let rootdir = leak(PathBuf::from_str(".").unwrap());
+    let rootdir_path = rootdir.as_path();
+    let die = Arc::new(AtomicBool::new(false));
 
     for arc in &roots {
         let arc = arc.1.clone();
+        let die = die.clone();
         runner.execute(move || {
             if !arc.2.is_completed() {
                 arc.2.call_once(|| {
-                    build_deps(arc.clone(), recipes, runner);
+                    build_deps(arc.clone(), recipes, runner, rootdir_path, die);
                 });
             }
         });
     }
     runner.join();
+}
+
+fn leak<T>(t: T) -> &'static T {
+    Box::leak(Box::new(t))
 }
 
 fn write(d: &DynTarget) -> RwLockWriteGuard<'_, Target> {
@@ -92,10 +110,22 @@ fn build_deps(
     target: Dependent,
     recipes: &'static HashMap<String, Vec<Recipe>>,
     runner: &'static ThreadPool,
+    rootdir: &'static Path,
+    die: Arc<AtomicBool>,
 ) {
     let a = recipes.get(&remove_prefix(&target.0));
+    if die.load(Relaxed) {
+        return;
+    }
+
     if let Some(rs) = a {
-        run_recipe(&target.0, &read_s(&target.1).dependencies, rs);
+        run_recipe(
+            &target.0,
+            &read_s(&target.1).dependencies,
+            rs,
+            rootdir,
+            die.clone(),
+        );
     } else {
         panic!(
             "Could not find a recipe to build {}\n Recipes: {:?}",
@@ -108,34 +138,90 @@ fn build_deps(
     let target = read_s(&target.1);
     for arc in &target.dependents {
         let arc = arc.clone();
+        let die = die.clone();
         runner.execute(move || {
             if !arc.2.is_completed() {
                 arc.2.call_once(|| {
-                    build_deps(arc.clone(), recipes, runner);
+                    build_deps(arc.clone(), recipes, runner, rootdir, die);
                 });
             }
         });
     }
 }
 
-fn run_recipe(filename: &str, dependencies: &[String], recipes: &[Recipe]) {
+fn run_recipe(
+    filename: &str,
+    dependencies: &[String],
+    recipes: &[Recipe],
+    rootdir: &Path,
+    mut die: Arc<AtomicBool>,
+) {
     if let Some(recipe) = recipes.iter().find(|r| {
         r.inputs
             .iter()
             .any(|input| dependencies.iter().any(|dep| dep.contains(input)))
-    }){
-        for step in &recipe.steps{
-            let mut step = step.clone();
-            do_replacements(&mut step, filename, dependencies);
-            println!("building {}: {:?}", filename, step);
+    }) {
+        for step in &recipe.steps {
+            let mut step = step.iter().map(|s| s.into()).collect();
+            let filename = rootdir.join(filename);
+            let dependencies: Vec<_> = dependencies
+                .iter()
+                .filter(|d| recipe.inputs.contains(&remove_prefix(d)))
+                .map(|d| rootdir.join(d).into_os_string())
+                .collect();
+            do_replacements(&mut step, &filename, &dependencies, rootdir.as_os_str());
+            println!("Executing {:?}", step);
+            execute(step, rootdir, &mut die, filename.as_os_str());
         }
     }
 }
 
-fn do_replacements(s: &mut Vec<String>, target: &str, dependencies: &[String]){
-    s.iter_mut().for_each(|s| if s == "$@" { *s = target.to_string()});
-    
-    while let Some(p) = s.iter().position(|str| str == "$^"){
-        s.splice(p..p+1, dependencies.to_owned());
+fn execute(
+    mut command: Vec<OsString>,
+    working_dir: &Path,
+    die: &mut Arc<AtomicBool>,
+    filename: &OsStr,
+) {
+    let cmd = command.remove(0);
+    let results = Command::new(cmd)
+        .args(command)
+        .current_dir(
+            working_dir
+                .canonicalize()
+                .expect("Unable to cannonicalize rootdir"),
+        )
+        .output();
+    match results {
+        Ok(out) => {
+            if !out.status.success() {
+                die.store(true, Relaxed);
+                panic!(
+                    "Build failure code {}:\n{}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
+        Err(e) => {
+            die.store(true, Relaxed);
+            panic!(
+                "Error running command when building {:?}:\n{:?}",
+                filename, e
+            )
+        }
+    }
+}
+
+fn do_replacements(s: &mut Vec<OsString>, target: &Path, dependencies: &[OsString], root: &OsStr) {
+    s.iter_mut().for_each(|s| {
+        if s == "$@" {
+            *s = target.as_os_str().into()
+        } else if s == "$br" {
+            *s = root.into()
+        }
+    });
+
+    while let Some(p) = s.iter().position(|str| str == "$^") {
+        s.splice(p..p + 1, dependencies.to_owned());
     }
 }

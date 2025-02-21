@@ -1,11 +1,14 @@
-valid_char = _{ LETTER | NUMBER | MARK | CONNECTOR_PUNCTUATION | DASH_PUNCTUATION | MATH_SYMBOL | "/" | "\\" | "." }
+valid_char = _{ 
+    LETTER | NUMBER | MARK | CONNECTOR_PUNCTUATION | DASH_PUNCTUATION | MATH_SYMBOL | "/" | "\\" | "." 
+    | "\"" | "\'" | "#"
+}
 ws = _{ " " }
 token = { valid_char+ }
 expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | valid_char+ }
 
 template = { "%" ~ valid_char* }
 
-implicit_var = { "$@" | "$^" }
+implicit_var = { "$@" | "$^" | "$br" }
 
 recipe_step = { "\t" ~ (ws* ~(implicit_var | expr))+ }
 

@@ -7,7 +7,7 @@ fn main() {
     let mut context = HashMap::<String, Vec<String>>::default();
     context.insert(
         "LINKFLAGS".into(),
-        vec!["-MMD", "-lto", "-O3"]
+        vec!["-MMD", "-flto", "-O3"]
             .iter()
             .map(|s| s.to_string())
             .collect(),

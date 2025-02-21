@@ -1,0 +1,13 @@
+#pragma once
+
+#ifdef __cplusplus
+extern "C"{
+#endif
+
+inline int global_config = #REPLACEME#;
+
+int print_config(int);
+
+#ifdef __cplusplus
+}
+#endif
