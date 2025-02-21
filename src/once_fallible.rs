@@ -17,10 +17,12 @@ impl OnceFallible {
     where
         T: FnOnce() -> bool,
     {
-        let _l = self.lock.lock();
-        if f() {
-            self.done.store(true, Release);
-            return true;
+        let l = self.lock.try_lock();
+        if l.is_ok() {
+            if f() {
+                self.done.store(true, Release);
+                return true;
+            }
         }
         false
     }
