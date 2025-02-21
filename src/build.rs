@@ -1,15 +1,12 @@
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Weak;
 use std::{
-    cell::LazyCell,
     collections::HashMap,
     ffi::{OsStr, OsString},
-    fmt::Debug,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     str::FromStr,
-    sync::{atomic::AtomicBool, Arc, Once, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    thread::Thread,
+    sync::{atomic::AtomicBool, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Duration,
 };
 
@@ -193,12 +190,36 @@ fn run_recipe(
         let dependencies: Vec<_> = dependencies
             .iter()
             .filter(|d| recipe.inputs.contains(&remove_prefix(d)))
-            .map(|d| rootdir.join(d).into_os_string())
+            .map(|d| rootdir.join(d))
             .collect();
-        do_replacements(&mut step, &filename, &dependencies, rootdir.as_os_str());
-        println!("Executing {:?}", step);
-        execute(step, rootdir, &mut die, filename.as_os_str());
+        if needs_compiling(&filename, &dependencies).unwrap_or_else(|e| {
+            die.store(true, Relaxed);
+            panic!(
+                "IO error when trying to access metadata for {:?}: {}",
+                filename, e
+            );
+        }) {
+            let dependencies: Vec<_> = dependencies
+                .into_iter()
+                .map(|d| d.into_os_string())
+                .collect();
+            do_replacements(&mut step, &filename, &dependencies, rootdir.as_os_str());
+            execute(step, rootdir, &mut die, filename.as_os_str());
+        }
     }
+}
+
+fn needs_compiling(target: &Path, dependencies: &[PathBuf]) -> Result<bool, std::io::Error> {
+    if !target.exists() {
+        return Ok(true);
+    }
+    let updatetime = target.metadata()?.modified()?;
+    for dep in dependencies {
+        if dep.metadata()?.modified()? > updatetime {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn execute(
