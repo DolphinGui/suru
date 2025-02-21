@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bld::{build::compile, parser::parse};
+use yaru::{build::compile, parser::parse};
 
 fn main() {
     let file = std::fs::read("tasks.bld").expect("File tasks.bld not found");
