@@ -15,6 +15,7 @@ use std::{
 
 use threadpool::ThreadPool;
 
+use crate::once_fallible::OnceFallible;
 use crate::{
     parser::{BldFile, Recipe, Task},
     util::remove_prefix,
@@ -24,12 +25,12 @@ use crate::{
 struct Target {
     dependency_files: Vec<String>,
     dependents: Vec<Dependent>,
-    dependencies: Vec<Weak<(String, DynTarget, Once)>>,
+    dependencies: Vec<Weak<(String, DynTarget, OnceFallible)>>,
     is_branch: bool,
 }
 
 type DynTarget = RwLock<Target>;
-type Dependent = Arc<(String, DynTarget, Once)>;
+type Dependent = Arc<(String, DynTarget, OnceFallible)>;
 
 pub fn compile(input: BldFile) {
     let roots = get_roots(input.tasks);
@@ -47,8 +48,8 @@ pub fn compile(input: BldFile) {
         let die = die.clone();
         runner.execute(move || {
             if !arc.2.is_completed() {
-                arc.2.call_once(|| {
-                    build_deps(arc.clone(), recipes, runner, rootdir_path, die);
+                arc.2.call_once_maybe(|| {
+                    build_deps(arc.clone(), recipes, runner, rootdir_path, die)
                 });
             }
         });
@@ -80,7 +81,7 @@ fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
                         dependencies: Default::default(),
                         is_branch: false,
                     }),
-                    Once::new(),
+                    OnceFallible::new(),
                 )),
             )
         }));
@@ -122,17 +123,15 @@ fn build_deps(
     runner: &'static ThreadPool,
     rootdir: &'static Path,
     die: Arc<AtomicBool>,
-) {
+) -> bool {
     if die.load(Relaxed) {
-        return;
+        return false;
     }
 
     for dep in &read_s(&target.1).dependencies {
         let dep = dep.upgrade().expect("Dependency unexpectedly dropped");
         if !dep.2.is_completed() {
-            dep.2.call_once(|| {
-                // just waits for the dependency to finish
-            });
+            return false; // just give up if we're not ready yet
         }
     }
 
@@ -162,12 +161,12 @@ fn build_deps(
         let die = die.clone();
         runner.execute(move || {
             if !arc.2.is_completed() {
-                arc.2.call_once(|| {
-                    build_deps(arc.clone(), recipes, runner, rootdir, die);
-                });
+                arc.2
+                    .call_once_maybe(|| build_deps(arc.clone(), recipes, runner, rootdir, die));
             }
         });
     }
+    true
 }
 
 fn run_recipe(
