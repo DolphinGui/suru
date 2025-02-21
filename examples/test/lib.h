@@ -4,8 +4,6 @@
 extern "C"{
 #endif
 
-#define global_config #REPLACEME#
-
 int print_config(int);
 
 #ifdef __cplusplus

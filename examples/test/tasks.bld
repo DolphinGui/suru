@@ -2,11 +2,11 @@ SOMEVARIABLE = $(LINKFLAGS)
 
 a: main.o lib.o
 
-main.o: main.cpp lib.h
+main.o: main.cpp config.h
 
-lib.o: lib.c lib.h
+lib.o: lib.c config.h
 
-lib.h: lib.h.in
+config.h: config.h.in
 
 % < %.o
 	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
