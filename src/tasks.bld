@@ -9,10 +9,10 @@ lib.o: lib.c lib.h
 lib.h: lib.h.in
 
 %.o < %.c
-	gcc -o $@ $^ -O3 $(SOMEVARIABLE)
+	gcc -c -o $@ $^ -O3 $(SOMEVARIABLE)
 
 %.o < %.cpp
-	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
+	g++ -c -o $@ $^ -O3 $(SOMEVARIABLE)
 
 %.exe < %.o
 	g++ -o $@ $^ -O3 $(SOMEVARIABLE)

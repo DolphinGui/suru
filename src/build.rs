@@ -1,10 +1,5 @@
 use std::{
-    collections::HashMap,
-    fmt::Debug,
-    path::Path,
-    sync::{Arc, Once, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    thread::Thread,
-    time::Duration,
+    cell::LazyCell, collections::HashMap, fmt::Debug, path::Path, sync::{Arc, Once, RwLock, RwLockReadGuard, RwLockWriteGuard}, thread::Thread, time::Duration
 };
 
 use threadpool::ThreadPool;
@@ -124,10 +119,23 @@ fn build_deps(
 }
 
 fn run_recipe(filename: &str, dependencies: &[String], recipes: &[Recipe]) {
-    let a = recipes.iter().find(|r| {
+    if let Some(recipe) = recipes.iter().find(|r| {
         r.inputs
             .iter()
             .any(|input| dependencies.iter().any(|dep| dep.contains(input)))
-    });
-    println!("recipe found for {}: {:?}", filename, a);
+    }){
+        for step in &recipe.steps{
+            let mut step = step.clone();
+            do_replacements(&mut step, filename, dependencies);
+            println!("building {}: {:?}", filename, step);
+        }
+    }
+}
+
+fn do_replacements(s: &mut Vec<String>, target: &str, dependencies: &[String]){
+    s.iter_mut().for_each(|s| if s == "$@" { *s = target.to_string()});
+    
+    while let Some(p) = s.iter().position(|str| str == "$^"){
+        s.splice(p..p+1, dependencies.to_owned());
+    }
 }
