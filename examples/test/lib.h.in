@@ -4,7 +4,7 @@
 extern "C"{
 #endif
 
-inline int global_config = #REPLACEME#;
+#define global_config #REPLACEME#
 
 int print_config(int);
 

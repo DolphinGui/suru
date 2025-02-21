@@ -113,11 +113,13 @@ fn build_deps(
     rootdir: &'static Path,
     die: Arc<AtomicBool>,
 ) {
-    let a = recipes.get(&remove_prefix(&target.0));
     if die.load(Relaxed) {
         return;
     }
 
+    let a = recipes
+        .get(&remove_prefix(&target.0))
+        .or_else(|| recipes.get("%"));
     if let Some(rs) = a {
         run_recipe(
             &target.0,
@@ -156,23 +158,28 @@ fn run_recipe(
     rootdir: &Path,
     mut die: Arc<AtomicBool>,
 ) {
-    if let Some(recipe) = recipes.iter().find(|r| {
-        r.inputs
-            .iter()
-            .any(|input| dependencies.iter().any(|dep| dep.contains(input)))
-    }) {
-        for step in &recipe.steps {
-            let mut step = step.iter().map(|s| s.into()).collect();
-            let filename = rootdir.join(filename);
-            let dependencies: Vec<_> = dependencies
+    let recipe = recipes
+        .iter()
+        .find(|r| {
+            r.inputs
                 .iter()
-                .filter(|d| recipe.inputs.contains(&remove_prefix(d)))
-                .map(|d| rootdir.join(d).into_os_string())
-                .collect();
-            do_replacements(&mut step, &filename, &dependencies, rootdir.as_os_str());
-            println!("Executing {:?}", step);
-            execute(step, rootdir, &mut die, filename.as_os_str());
-        }
+                .any(|input| dependencies.iter().any(|dep| input == &remove_prefix(dep)))
+        })
+        .unwrap_or_else(|| {
+            die.store(true, Relaxed);
+            panic!("Unable to find recipe to match {}", filename);
+        });
+    for step in &recipe.steps {
+        let mut step = step.iter().map(|s| s.into()).collect();
+        let filename = rootdir.join(filename);
+        let dependencies: Vec<_> = dependencies
+            .iter()
+            .filter(|d| recipe.inputs.contains(&remove_prefix(d)))
+            .map(|d| rootdir.join(d).into_os_string())
+            .collect();
+        do_replacements(&mut step, &filename, &dependencies, rootdir.as_os_str());
+        println!("Executing {:?}", step);
+        execute(step, rootdir, &mut die, filename.as_os_str());
     }
 }
 
@@ -201,6 +208,7 @@ fn execute(
                     String::from_utf8_lossy(&out.stderr)
                 );
             }
+            println!("{:?}: {}", filename, String::from_utf8_lossy(&out.stderr));
         }
         Err(e) => {
             die.store(true, Relaxed);
