@@ -31,7 +31,7 @@ pub struct BldFile {
     pub recipes: HashMap<String, Vec<Recipe>>,
 }
 
-pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>, base: &mut BldFile) {
+pub fn parse(input: &str, context: &mut HashMap<String, Vec<String>>, base: &mut BldFile) {
     let BldFile { tasks, recipes } = base;
     let mut input = BldParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
     let file = input.next().unwrap_or_else(|| (panic!()));
@@ -46,6 +46,7 @@ pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>, base: &mut 
                 let t = tasks.entry(task).or_default();
                 inners
                     .map(|n| eval_expr(&n, &context))
+                    .filter(|v| !v.is_empty())
                     .for_each(|mut v| t.inputs.append(&mut v));
             }
             Rule::recipe => {
@@ -53,7 +54,7 @@ pub fn parse(input: &str, mut context: HashMap<String, Vec<String>>, base: &mut 
                 recipes.entry(r).or_default().push(s);
             }
             Rule::vardecl => {
-                match_vardecl(&mut statement.into_inner(), &mut context);
+                match_vardecl(&mut statement.into_inner(), context);
             }
             Rule::EOI => {}
             unknown => panic!("This should never occur {:?}", unknown),
@@ -147,7 +148,7 @@ mod test {
         );
 
         let mut result = BldFile::default();
-        parse(f, context, &mut result);
+        parse(f, &mut context, &mut result);
         let expected = BldFile {
             tasks: HashMap::from([(
                 "a.exe".into(),

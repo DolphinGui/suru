@@ -17,7 +17,7 @@ template ~ ws* ~ "<" ~ (ws* ~ template ~ ws*)* ~ (NEWLINE ~ recipe_step)+ }
 
 task = { expr ~ ws* ~ ":" ~ (ws* ~ expr)* }
 
-vardecl = { token ~ ws* ~ "=" ~ ws* ~ expr+ }
+vardecl = { token ~ ws* ~ "=" ~ (ws* ~ expr)+ }
 
 file = { SOI ~ ws* ~ ((task | recipe | vardecl)? ~ NEWLINE)* ~ ws* ~ EOI }
 

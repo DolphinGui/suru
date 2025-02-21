@@ -229,8 +229,8 @@ fn execute(
     filename: &OsStr,
 ) {
     let cmd = command.remove(0);
-    let results = Command::new(cmd)
-        .args(command)
+    let results = Command::new(&cmd)
+        .args(&command)
         .current_dir(
             working_dir
                 .canonicalize()
@@ -252,8 +252,8 @@ fn execute(
         Err(e) => {
             die.store(true, Relaxed);
             panic!(
-                "Error running command when building {:?}:\n{:?}",
-                filename, e
+                "Error running command when running {:?} {:?}:\n{:?}",
+                &cmd, &command, e
             )
         }
     }
