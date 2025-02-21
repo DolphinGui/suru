@@ -130,6 +130,7 @@ fn fst(vec: &Vec<String>) -> String {
     vec[0].clone()
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
 
@@ -225,12 +226,10 @@ mod test {
         }
     }
 
-    #[cfg(test)]
     fn make_svec(s: &[&str]) -> Vec<String> {
         s.iter().map(|s| s.to_string()).collect()
     }
 
-    #[cfg(test)]
     fn make_sset(s: &[&str]) -> HashSet<String> {
         let mut h = HashSet::new();
         h.reserve(s.len());
