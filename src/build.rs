@@ -1,4 +1,5 @@
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Weak;
 use std::{
     cell::LazyCell,
     collections::HashMap,
@@ -21,8 +22,9 @@ use crate::{
 
 #[derive(Debug)]
 struct Target {
-    dependencies: Vec<String>,
+    dependency_files: Vec<String>,
     dependents: Vec<Dependent>,
+    dependencies: Vec<Weak<(String, DynTarget, Once)>>,
     is_branch: bool,
 }
 
@@ -73,8 +75,9 @@ fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
                 Arc::new((
                     file,
                     RwLock::new(Target {
-                        dependencies: deps.inputs.into_iter().collect(),
+                        dependency_files: deps.inputs.into_iter().collect(),
                         dependents: Default::default(),
+                        dependencies: Default::default(),
                         is_branch: false,
                     }),
                     Once::new(),
@@ -85,12 +88,19 @@ fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
     for (_, target_deps) in &unprocessed {
         let mut td = write(&target_deps.1);
         let mut is_branch = false;
-        for dep in td.dependencies.iter() {
-            if let Some(d) = unprocessed.get(dep) {
-                write(&d.1).dependents.push(target_deps.clone());
-                is_branch = true;
-            }
-        }
+        let mut deps: Vec<_> = td
+            .dependency_files
+            .iter()
+            .filter_map(|dep| {
+                if let Some(d) = unprocessed.get(dep) {
+                    write(&d.1).dependents.push(target_deps.clone());
+                    is_branch = true;
+                    return Some(Arc::downgrade(d));
+                }
+                None
+            })
+            .collect();
+        td.dependencies.append(&mut deps);
         if is_branch {
             td.is_branch = true;
         }
@@ -117,13 +127,22 @@ fn build_deps(
         return;
     }
 
+    for dep in &read_s(&target.1).dependencies {
+        let dep = dep.upgrade().expect("Dependency unexpectedly dropped");
+        if !dep.2.is_completed() {
+            dep.2.call_once(|| {
+                // just waits for the dependency to finish
+            });
+        }
+    }
+
     let a = recipes
         .get(&remove_prefix(&target.0))
         .or_else(|| recipes.get("%"));
     if let Some(rs) = a {
         run_recipe(
             &target.0,
-            &read_s(&target.1).dependencies,
+            &read_s(&target.1).dependency_files,
             rs,
             rootdir,
             die.clone(),
