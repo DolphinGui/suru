@@ -1,18 +1,41 @@
 use std::{
     collections::HashMap,
-    fs::{DirEntry, Metadata},
     path::{Path, PathBuf},
     str::FromStr,
 };
 
+use clap::Parser;
 use paris::error;
 use yaru::{build::compile, parser::parse};
 
-fn main() {
-    let cwd = &std::env::current_dir().expect("Unable to open current working directory");
-    let file = find_file(cwd);
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    build_dir: Option<String>,
+    #[arg(short, long)]
+    source_dir: Option<String>,
+}
 
-    let tasks = std::fs::read(&file).expect("Could not read task file");
+fn main() {
+    let args = Args::parse();
+
+    let build_root = args
+        .build_dir
+        .and_then(|s| PathBuf::from_str(&s).ok())
+        .or(std::env::current_dir().ok())
+        .expect("Unable to open current working directory");
+
+    let search_root = args
+        .source_dir
+        .and_then(|s| PathBuf::from_str(&s).ok())
+        .unwrap_or_else(|| {
+            error!("Unable to open specified search root");
+            build_root.clone()
+        });
+
+    let taskfile = find_file(&search_root);
+
+    let tasks = std::fs::read(&taskfile).expect("Could not read task file");
     let mut context = HashMap::<String, Vec<String>>::default();
     let prologue = include_str!("prologue.bld");
     let mut bld = Default::default();
@@ -20,7 +43,7 @@ fn main() {
     parse(prologue, &mut context, &mut bld);
 
     let mut depfiles = Vec::new();
-    search_dependencies(&cwd, &mut depfiles);
+    search_dependencies(&build_root, &mut depfiles);
 
     for depfile in depfiles {
         let tasks = std::fs::read(&depfile);
@@ -42,8 +65,10 @@ fn main() {
 
     compile(
         bld,
-        cwd,
-        file.parent().expect("Unable to open parent of task file"),
+        &build_root,
+        taskfile
+            .parent()
+            .expect("Unable to open parent of task file"),
     );
 }
 
