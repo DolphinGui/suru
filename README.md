@@ -16,7 +16,7 @@ via pattern matched recipes, which are separated from dependencies.
 
 a: main.o lib/lib.o
 
-% < %.o
+% < *.o
     g++ -o $@ $^ -O3
 ```
 
