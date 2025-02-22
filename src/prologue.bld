@@ -5,7 +5,7 @@ CPPFLAGS = $(env CPPFLAGS) -MMD
 LINKFLAGS = $(env LINKFLAGS)
 
 %.o < %.c
-	$(or $(env CC) $(path gcc) $(path clang)) -c -o $@ $^ $(CFLAGS) $(CPPFLAGS) -I $br
+	$(or $(env CC) $(path gcc) $(path clang)) -c $^ $(CFLAGS) $(CPPFLAGS) -I $bd -I $sd
 
 %.o < %.cpp
-	$(or $(env CXX) $(path g++) $(path clang++)) -c -o $@ $^ -O3 $(CXXFLAGS) $(CPPFLAGS) -I $br
+	$(or $(env CXX) $(path g++) $(path clang++)) -c $^ -O3 $(CXXFLAGS) $(CPPFLAGS) -I $bd -I $sd

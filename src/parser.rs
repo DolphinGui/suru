@@ -133,6 +133,8 @@ fn fst(vec: &Vec<String>) -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::util::{make_sset, make_svec};
+
     use super::*;
 
     #[test]
@@ -225,18 +227,5 @@ mod test {
         for p in v {
             println!("[{:?}]", p);
         }
-    }
-
-    fn make_svec(s: &[&str]) -> Vec<String> {
-        s.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn make_sset(s: &[&str]) -> HashSet<String> {
-        let mut h = HashSet::new();
-        h.reserve(s.len());
-        for st in s.iter().map(|s| s.to_string()) {
-            h.insert(st);
-        }
-        h
     }
 }

@@ -8,6 +8,8 @@ pub fn eval_function(name: &str, inputs: &[String]) -> Vec<String> {
         "or" => or(inputs),
         "path" => path(inputs),
         "just" => inputs.to_owned(),
+        "first" => first(inputs),
+        "last" => last(inputs),
         _ => panic!("Unknown function"),
     }
 }
@@ -69,4 +71,48 @@ fn path(inputs: &[String]) -> Vec<String> {
 
 fn or(inputs: &[String]) -> Vec<String> {
     inputs.get(0).map(|s| vec![s.clone()]).unwrap_or_default()
+}
+
+fn first(inputs: &[String]) -> Vec<String> {
+    if inputs.len() < 1 {
+        panic!("Expected at least one argument to function first");
+    }
+    let num: usize = inputs[0]
+        .parse()
+        .expect(&format!("Parsing error when parsing {}", &inputs[0]));
+    if inputs.len() < num + 1 {
+        panic!("Expected at least {} arguments for function first", num + 1);
+    }
+
+    inputs[1..num+1].to_owned()
+}
+
+fn last(inputs: &[String]) -> Vec<String> {
+    if inputs.len() == 0 {
+        panic!("Expected at least one argument to function last");
+    }
+    let num: usize = inputs[0]
+        .parse()
+        .expect(&format!("Parsing error when parsing {}", &inputs[0]));
+    if inputs.len() < num + 1 {
+        panic!("Expected at least {} arguments for function last", num + 1);
+    }
+
+    inputs[(inputs.len() - num)..inputs.len()].to_owned()
+}
+#[cfg(test)]
+mod test {
+    use crate::util::make_svec;
+
+    use super::*;
+
+    #[test]
+    fn test_first_last() {
+        let inputs = make_svec(&["3", "a", "b", "c", "d"]);
+        let results = last(&inputs);
+        assert_eq!(results, make_svec(&["b", "c", "d"]));
+
+        let results = first(&inputs);
+        assert_eq!(results, make_svec(&["a", "b", "c"]));
+    }
 }

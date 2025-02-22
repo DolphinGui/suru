@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 indicatif = "0.17.11"
 num_cpus = "1.16.0"
+paris = { version = "1.5.15", features = ["macros"] }
 pest = "2.7.15"
 pest_derive = "2.7.15"
 threadpool = "1.8.1"

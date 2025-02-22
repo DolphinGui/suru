@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use paris::error;
 use threadpool::ThreadPool;
 
 use crate::once_fallible::OnceFallible;
@@ -19,8 +20,21 @@ use crate::{
 };
 
 #[derive(Debug)]
+enum DependencyFile {
+    Source(String),
+    Generated(String),
+}
+
+fn file(dep: &DependencyFile) -> &String {
+    match dep {
+        DependencyFile::Source(s) => s,
+        DependencyFile::Generated(s) => s,
+    }
+}
+
+#[derive(Debug)]
 struct Target {
-    dependency_files: Vec<String>,
+    dependency_files: Vec<DependencyFile>,
     dependents: Vec<Dependent>,
     dependencies: Vec<Weak<(String, DynTarget, OnceFallible)>>,
     is_branch: bool,
@@ -29,15 +43,15 @@ struct Target {
 type DynTarget = RwLock<Target>;
 type Dependent = Arc<(String, DynTarget, OnceFallible)>;
 
-pub fn compile(input: BldFile) {
+pub fn compile(input: BldFile, builddir: &Path, sourcedir: &Path) {
     let roots = get_roots(input.tasks);
 
     let runner = leak(ThreadPool::new(num_cpus::get_physical()));
 
     let recipes = leak(input.recipes);
 
-    let rootdir = leak(PathBuf::from_str(".").unwrap());
-    let rootdir_path = rootdir.as_path();
+    let builddir = leak(builddir.to_path_buf());
+    let sourcedir = leak(sourcedir.to_path_buf());
     let die = Arc::new(AtomicBool::new(false));
 
     for arc in &roots {
@@ -46,7 +60,7 @@ pub fn compile(input: BldFile) {
         runner.execute(move || {
             if !arc.2.is_completed() {
                 arc.2.call_once_maybe(|| {
-                    build_deps(arc.clone(), recipes, runner, rootdir_path, die)
+                    build_deps(arc.clone(), recipes, runner, &sourcedir, &builddir, die)
                 });
             }
         });
@@ -73,7 +87,11 @@ fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
                 Arc::new((
                     file,
                     RwLock::new(Target {
-                        dependency_files: deps.inputs.into_iter().collect(),
+                        dependency_files: deps
+                            .inputs
+                            .into_iter()
+                            .map(DependencyFile::Source)
+                            .collect(),
                         dependents: Default::default(),
                         dependencies: Default::default(),
                         is_branch: false,
@@ -88,9 +106,10 @@ fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
         let mut is_branch = false;
         let mut deps: Vec<_> = td
             .dependency_files
-            .iter()
+            .iter_mut()
             .filter_map(|dep| {
-                if let Some(d) = unprocessed.get(dep) {
+                if let Some(d) = unprocessed.get(file(dep)) {
+                    *dep = DependencyFile::Generated(file(dep).clone());
                     write(&d.1).dependents.push(target_deps.clone());
                     is_branch = true;
                     return Some(Arc::downgrade(d));
@@ -118,7 +137,8 @@ fn build_deps(
     target: Dependent,
     recipes: &'static HashMap<String, Vec<Recipe>>,
     runner: &'static ThreadPool,
-    rootdir: &'static Path,
+    sourcedir: &'static Path,
+    builddir: &'static Path,
     die: Arc<AtomicBool>,
 ) -> bool {
     if die.load(Relaxed) {
@@ -140,7 +160,8 @@ fn build_deps(
             &target.0,
             &read_s(&target.1).dependency_files,
             rs,
-            rootdir,
+            sourcedir,
+            builddir,
             die.clone(),
         );
     } else {
@@ -158,8 +179,9 @@ fn build_deps(
         let die = die.clone();
         runner.execute(move || {
             if !arc.2.is_completed() {
-                arc.2
-                    .call_once_maybe(|| build_deps(arc.clone(), recipes, runner, rootdir, die));
+                arc.2.call_once_maybe(|| {
+                    build_deps(arc.clone(), recipes, runner, sourcedir, builddir, die)
+                });
             }
         });
     }
@@ -167,30 +189,35 @@ fn build_deps(
 }
 
 fn run_recipe(
-    filename: &str,
-    dependencies: &[String],
+    target: &str,
+    dependencies: &[DependencyFile],
     recipes: &[Recipe],
-    rootdir: &Path,
+    sourcedir: &Path,
+    builddir: &Path,
     mut die: Arc<AtomicBool>,
 ) {
     let recipe = recipes
         .iter()
         .find(|r| {
-            r.inputs
-                .iter()
-                .any(|input| dependencies.iter().any(|dep| input == &remove_prefix(dep)))
+            r.inputs.iter().any(|input| {
+                dependencies
+                    .iter()
+                    .any(|dep| input == &remove_prefix(file(dep)))
+            })
         })
         .unwrap_or_else(|| {
             die.store(true, Relaxed);
-            panic!("Unable to find recipe to match {}", filename);
+            panic!("Unable to find recipe to match {}", target);
         });
     for step in &recipe.steps {
         let mut step = step.iter().map(|s| s.into()).collect();
-        let filename = rootdir.join(filename);
+        let filename = builddir.join(target);
         let dependencies: Vec<_> = dependencies
             .iter()
-            .filter(|d| recipe.inputs.contains(&remove_prefix(d)))
-            .map(|d| rootdir.join(d))
+            .map(|d| match d {
+                DependencyFile::Source(s) => sourcedir.join(s),
+                DependencyFile::Generated(g) => builddir.join(g),
+            })
             .collect();
         if needs_compiling(&filename, &dependencies).unwrap_or_else(|e| {
             die.store(true, Relaxed);
@@ -201,10 +228,17 @@ fn run_recipe(
         }) {
             let dependencies: Vec<_> = dependencies
                 .into_iter()
+                .filter(|d| recipe.inputs.contains(&remove_prefix(d.to_str().unwrap())))
                 .map(|d| d.into_os_string())
                 .collect();
-            do_replacements(&mut step, &filename, &dependencies, rootdir.as_os_str());
-            execute(step, rootdir, &mut die, filename.as_os_str());
+            do_replacements(
+                &mut step,
+                &filename,
+                &dependencies,
+                builddir.as_os_str(),
+                sourcedir.as_os_str(),
+            );
+            execute(step, builddir, &mut die, filename.as_os_str());
         }
     }
 }
@@ -241,6 +275,7 @@ fn execute(
         Ok(out) => {
             if !out.status.success() {
                 die.store(true, Relaxed);
+                error!("Error running command {:?} {:?}", &cmd, &command);
                 panic!(
                     "Build failure code {}:\n{}",
                     out.status,
@@ -259,12 +294,20 @@ fn execute(
     }
 }
 
-fn do_replacements(s: &mut Vec<OsString>, target: &Path, dependencies: &[OsString], root: &OsStr) {
+fn do_replacements(
+    s: &mut Vec<OsString>,
+    target: &Path,
+    dependencies: &[OsString],
+    builddir: &OsStr,
+    sourcedir: &OsStr,
+) {
     s.iter_mut().for_each(|s| {
         if s == "$@" {
             *s = target.as_os_str().into()
-        } else if s == "$br" {
-            *s = root.into()
+        } else if s == "$bd" {
+            *s = builddir.into()
+        } else if s == "%sd" {
+            *s = sourcedir.into()
         }
     });
 

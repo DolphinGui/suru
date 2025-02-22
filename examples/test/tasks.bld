@@ -6,10 +6,10 @@ main.o: main.cpp config.h
 
 lib.o: lib.c config.h
 
-config.h: config.h.in
+config.h: makeheader.sh config.h.in
 
 % < %.o
 	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
 
-%.h < %.h.in
-	./makeheader.sh $^ $@
+%.h < %.sh %.h.in
+	$^ $@

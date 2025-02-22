@@ -8,7 +8,7 @@ expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | valid_char+ }
 
 template = { "%" ~ valid_char* }
 
-implicit_var = { "$@" | "$^" | "$br" }
+implicit_var = { "$@" | "$^" | "$bd" | "$sd" }
 
 recipe_step = { "\t" ~ (ws* ~(implicit_var | expr))+ }
 
