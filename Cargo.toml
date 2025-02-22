@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 indicatif = "0.17.11"
+log = { version = "0.4.26", features = ["max_level_debug", "release_max_level_warn"] }
 num_cpus = "1.16.0"
 paris = { version = "1.5.15", features = ["macros"] }
 pest = "2.7.15"
