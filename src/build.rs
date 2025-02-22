@@ -18,7 +18,7 @@ use threadpool::ThreadPool;
 
 use crate::once_fallible::OnceFallible;
 use crate::{
-    parser::{BldFile, Recipe, Task},
+    parser::{TaskFile, Recipe, Task},
     util::remove_prefix,
 };
 
@@ -46,7 +46,7 @@ struct Target {
 type DynTarget = RwLock<Target>;
 type Dependent = Arc<(String, DynTarget, OnceFallible)>;
 
-pub fn compile(input: BldFile, builddir: &Path, sourcedir: &Path, mp: MultiProgress) {
+pub fn compile(input: TaskFile, builddir: &Path, sourcedir: &Path, mp: MultiProgress) {
     let progress = ProgressBar::new(input.tasks.len() as u64);
 
     mp.add(progress.clone());

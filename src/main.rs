@@ -8,7 +8,7 @@ use clap::Parser;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::error;
-use yaru::{build::compile, parser::parse};
+use suru::{build::compile, parser::parse};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -57,10 +57,10 @@ fn main() {
 
     let tasks = std::fs::read(&taskfile).expect("Could not read task file");
     let mut context = HashMap::<String, Vec<String>>::default();
-    let prologue = include_str!("prologue.bld");
-    let mut bld = Default::default();
+    let prologue = include_str!("prologue.su");
+    let mut buildstate = Default::default();
 
-    parse(prologue, &mut context, &mut bld);
+    parse(prologue, &mut context, &mut buildstate);
 
     let mut depfiles = Vec::new();
     search_dependencies(&build_root, &mut depfiles);
@@ -76,15 +76,15 @@ fn main() {
                 );
             }
             Ok(depfile) => {
-                parse(&preprocess(depfile), &mut context, &mut bld);
+                parse(&preprocess(depfile), &mut context, &mut buildstate);
             }
         }
     }
 
-    parse(&preprocess(tasks), &mut context, &mut bld);
+    parse(&preprocess(tasks), &mut context, &mut buildstate);
 
     compile(
-        bld,
+        buildstate,
         &build_root,
         taskfile
             .parent()
@@ -100,7 +100,7 @@ fn find_file(search_root: &Path) -> PathBuf {
                 for file in d {
                     match file {
                         Ok(f) => {
-                            if f.file_name() == "tasks.bld" {
+                            if f.file_name() == "tasks.su" {
                                 return f.path();
                             }
                         }
@@ -130,7 +130,7 @@ fn find_file(search_root: &Path) -> PathBuf {
             }
         }
     }
-    error!("Unable to find tasks.bld in any parent directories");
+    error!("Unable to find tasks.su in any parent directories");
     panic!();
 }
 

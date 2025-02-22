@@ -11,8 +11,8 @@ use crate::functions::eval_function;
 use crate::util::remove_prefix;
 
 #[derive(Parser)]
-#[grammar = "bldfile.pest"]
-struct BldParser;
+#[grammar = "sufile.pest"]
+struct TaskParser;
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Task {
@@ -26,14 +26,14 @@ pub struct Recipe {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct BldFile {
+pub struct TaskFile {
     pub tasks: HashMap<String, Task>,
     pub recipes: HashMap<String, Vec<Recipe>>,
 }
 
-pub fn parse(input: &str, context: &mut HashMap<String, Vec<String>>, base: &mut BldFile) {
-    let BldFile { tasks, recipes } = base;
-    let mut input = BldParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
+pub fn parse(input: &str, context: &mut HashMap<String, Vec<String>>, base: &mut TaskFile) {
+    let TaskFile { tasks, recipes } = base;
+    let mut input = TaskParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
     let file = input.next().unwrap_or_else(|| (panic!()));
     for statement in file.into_inner() {
         match statement.as_rule() {
@@ -139,7 +139,7 @@ mod test {
 
     #[test]
     fn try_parse() {
-        let f = include_str!("tasks.bld");
+        let f = include_str!("tasks.su");
         let mut context = HashMap::new();
         context.insert(
             "LINKFLAGS".into(),
@@ -149,9 +149,9 @@ mod test {
                 .collect(),
         );
 
-        let mut result = BldFile::default();
+        let mut result = TaskFile::default();
         parse(f, &mut context, &mut result);
-        let expected = BldFile {
+        let expected = TaskFile {
             tasks: HashMap::from([(
                 "a.exe".into(),
                 Task {
@@ -186,8 +186,8 @@ mod test {
 
     #[test]
     fn parse_file() {
-        let f = include_str!("tasks.bld");
-        let v = BldParser::parse(Rule::file, f).unwrap_or_else(|e| panic!("{}", e));
+        let f = include_str!("tasks.su");
+        let v = TaskParser::parse(Rule::file, f).unwrap_or_else(|e| panic!("{}", e));
         for p in v {
             println!("{:?}", p);
         }
@@ -196,7 +196,7 @@ mod test {
     #[test]
     fn parse_expr() {
         let var = "$(upper $(FLAGS))";
-        let mut v = BldParser::parse(Rule::expr, var).unwrap_or_else(|e| panic!("{}", e));
+        let mut v = TaskParser::parse(Rule::expr, var).unwrap_or_else(|e| panic!("{}", e));
         let pair = v.next();
         println!("{:?}", pair);
     }
@@ -204,7 +204,7 @@ mod test {
     #[test]
     fn parse_task() {
         let task = "a.out: main.o src/other.o";
-        let v = BldParser::parse(Rule::task, task).unwrap_or_else(|e| panic!("{}", e));
+        let v = TaskParser::parse(Rule::task, task).unwrap_or_else(|e| panic!("{}", e));
         println!("Parsing thing");
         for p in v {
             println!("[{:?}]", p);
@@ -214,7 +214,7 @@ mod test {
     #[test]
     fn parse_recipe() {
         let recipe = "%.h < %.h.in\n\tgenerate.py $@ $^";
-        let v = BldParser::parse(Rule::recipe, recipe).unwrap_or_else(|e| panic!("{}", e));
+        let v = TaskParser::parse(Rule::recipe, recipe).unwrap_or_else(|e| panic!("{}", e));
         for p in v {
             println!("[{:?}]", p);
         }
@@ -223,7 +223,7 @@ mod test {
     #[test]
     fn parse_template() {
         let template = "%.exe";
-        let v = BldParser::parse(Rule::template, template).unwrap_or_else(|e| panic!("{}", e));
+        let v = TaskParser::parse(Rule::template, template).unwrap_or_else(|e| panic!("{}", e));
         for p in v {
             println!("[{:?}]", p);
         }
