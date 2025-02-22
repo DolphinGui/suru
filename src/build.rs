@@ -101,7 +101,7 @@ fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
                 )),
             )
         }));
-    for (s, target_deps) in &unprocessed {
+    for (_, target_deps) in &unprocessed {
         let mut td = write(&target_deps.1);
         let mut is_branch = false;
         let mut deps: Vec<_> = td

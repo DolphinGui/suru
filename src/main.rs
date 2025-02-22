@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fs::{DirEntry, Metadata},
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -17,6 +18,25 @@ fn main() {
     let mut bld = Default::default();
 
     parse(prologue, &mut context, &mut bld);
+
+    let mut depfiles = Vec::new();
+    search_dependencies(&cwd, &mut depfiles);
+
+    for depfile in depfiles {
+        let tasks = std::fs::read(&depfile);
+        match tasks {
+            Err(e) => {
+                error!(
+                    "Unable to read depfile {:?} due to: {}",
+                    depfile.file_name(),
+                    e
+                );
+            }
+            Ok(depfile) => {
+                parse(&preprocess(depfile), &mut context, &mut bld);
+            }
+        }
+    }
 
     parse(&preprocess(tasks), &mut context, &mut bld);
 
@@ -68,7 +88,24 @@ fn find_file(search_root: &Path) -> PathBuf {
     panic!();
 }
 
-// fn search_dependencies
+fn search_dependencies(search_root: &Path, out: &mut Vec<PathBuf>) {
+    for file in search_root
+        .read_dir()
+        .expect("Cannot search files in build root")
+        .filter_map(|d| d.ok())
+    {
+        if file.file_type().is_ok_and(|t| t.is_dir()) {
+            search_dependencies(&file.path(), out);
+        } else if file
+            .file_name()
+            .to_str()
+            .and_then(|f| Some(f.ends_with(".d")))
+            .unwrap_or(false)
+        {
+            out.push(file.path());
+        }
+    }
+}
 
 fn preprocess(file: Vec<u8>) -> String {
     let file = String::from_utf8(file).expect("Build file is not utf-8");
