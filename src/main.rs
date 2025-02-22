@@ -5,7 +5,9 @@ use std::{
 };
 
 use clap::Parser;
-use paris::error;
+use indicatif::MultiProgress;
+use indicatif_log_bridge::LogWrapper;
+use log::error;
 use yaru::{build::compile, parser::parse};
 
 #[derive(Parser, Debug)]
@@ -16,8 +18,23 @@ struct Args {
     source_dir: Option<String>,
 }
 
+fn init_logging() -> MultiProgress {
+    let logger =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).build();
+
+    let level = logger.filter();
+    let mp = MultiProgress::new();
+    if let Err(e) = LogWrapper::new(mp.clone(), logger).try_init() {
+        panic!("Could not thing {}", e);
+    }
+    log::set_max_level(level);
+    mp
+}
+
 fn main() {
     let args = Args::parse();
+
+    let mp = init_logging();
 
     let build_root = args
         .build_dir
@@ -27,11 +44,14 @@ fn main() {
 
     let search_root = args
         .source_dir
-        .and_then(|s| PathBuf::from_str(&s).ok())
-        .unwrap_or_else(|| {
-            error!("Unable to open specified search root");
-            build_root.clone()
-        });
+        .and_then(|s| match PathBuf::from_str(&s) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                error!("Unable to open specified search root: {}", e);
+                None
+            }
+        })
+        .unwrap_or_else(|| build_root.clone());
 
     let taskfile = find_file(&search_root);
 
@@ -69,6 +89,7 @@ fn main() {
         taskfile
             .parent()
             .expect("Unable to open parent of task file"),
+        mp,
     );
 }
 

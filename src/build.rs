@@ -11,7 +11,9 @@ use std::{
     time::Duration,
 };
 
-use paris::{error, info};
+use indicatif::{MultiProgress, ProgressBar};
+use indicatif_log_bridge::LogWrapper;
+use log::{error, info, logger};
 use threadpool::ThreadPool;
 
 use crate::once_fallible::OnceFallible;
@@ -44,7 +46,11 @@ struct Target {
 type DynTarget = RwLock<Target>;
 type Dependent = Arc<(String, DynTarget, OnceFallible)>;
 
-pub fn compile(input: BldFile, builddir: &Path, sourcedir: &Path) {
+pub fn compile(input: BldFile, builddir: &Path, sourcedir: &Path, mp: MultiProgress) {
+    let progress = ProgressBar::new(input.tasks.len() as u64);
+
+    mp.add(progress.clone());
+
     let roots = get_roots(input.tasks);
 
     let runner = leak(ThreadPool::new(num_cpus::get_physical()));
@@ -58,10 +64,19 @@ pub fn compile(input: BldFile, builddir: &Path, sourcedir: &Path) {
     for arc in &roots {
         let arc = arc.1.clone();
         let die = die.clone();
+        let progress = progress.clone();
         runner.execute(move || {
             if !arc.2.is_completed() {
                 arc.2.call_once_maybe(|| {
-                    build_deps(arc.clone(), recipes, runner, &sourcedir, &builddir, die)
+                    build_deps(
+                        arc.clone(),
+                        recipes,
+                        runner,
+                        &sourcedir,
+                        &builddir,
+                        die,
+                        progress,
+                    )
                 });
             }
         });
@@ -140,6 +155,7 @@ fn build_deps(
     sourcedir: &'static Path,
     builddir: &'static Path,
     die: Arc<AtomicBool>,
+    progress: ProgressBar,
 ) -> bool {
     if die.load(Relaxed) {
         return false;
@@ -163,6 +179,7 @@ fn build_deps(
             sourcedir,
             builddir,
             die.clone(),
+            &progress,
         );
     } else {
         panic!(
@@ -177,10 +194,19 @@ fn build_deps(
     for arc in &target.dependents {
         let arc = arc.clone();
         let die = die.clone();
+        let progress = progress.clone();
         runner.execute(move || {
             if !arc.2.is_completed() {
                 arc.2.call_once_maybe(|| {
-                    build_deps(arc.clone(), recipes, runner, sourcedir, builddir, die)
+                    build_deps(
+                        arc.clone(),
+                        recipes,
+                        runner,
+                        sourcedir,
+                        builddir,
+                        die,
+                        progress,
+                    )
                 });
             }
         });
@@ -195,6 +221,7 @@ fn run_recipe(
     sourcedir: &Path,
     builddir: &Path,
     mut die: Arc<AtomicBool>,
+    progress: &ProgressBar,
 ) {
     let recipe = recipes
         .iter()
@@ -239,6 +266,7 @@ fn run_recipe(
                 sourcedir.as_os_str(),
             );
             execute(step, builddir, &mut die, &filename);
+            progress.tick();
         }
     }
 }
@@ -302,7 +330,7 @@ fn execute(
                 );
             }
             info!(
-                "Building {:?}: {}",
+                "Building {:?}:\n  {}",
                 target,
                 String::from_utf8_lossy(&out.stderr)
             );
