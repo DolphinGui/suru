@@ -1,10 +1,10 @@
 SOMEVARIABLE = $(LINKFLAGS)
 
-a: main.o lib.o
+a: main.o lib/lib.o
 
 main.o: main.cpp config.h
 
-lib.o: lib.c config.h
+lib/lib.o: lib/lib.c config.h
 
 config.h: makeheader.sh config.h.in
 

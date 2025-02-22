@@ -18,11 +18,7 @@ fn main() {
 
     parse(prologue, &mut context, &mut bld);
 
-    parse(
-        std::str::from_utf8(&tasks).expect("tasks.bld not UTF-8"),
-        &mut context,
-        &mut bld,
-    );
+    parse(&preprocess(tasks), &mut context, &mut bld);
 
     compile(
         bld,
@@ -70,4 +66,11 @@ fn find_file(search_root: &Path) -> PathBuf {
     }
     error!("Unable to find tasks.bld in any parent directories");
     panic!();
+}
+
+// fn search_dependencies
+
+fn preprocess(file: Vec<u8>) -> String {
+    let file = String::from_utf8(file).expect("Build file is not utf-8");
+    file.replace("\\\n", " ")
 }

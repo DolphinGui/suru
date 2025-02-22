@@ -1,3 +1,5 @@
+use std::fs;
+use std::io::ErrorKind;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Weak;
 use std::{
@@ -5,12 +7,11 @@ use std::{
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
     process::Command,
-    str::FromStr,
     sync::{atomic::AtomicBool, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Duration,
 };
 
-use paris::error;
+use paris::{error, info};
 use threadpool::ThreadPool;
 
 use crate::once_fallible::OnceFallible;
@@ -100,8 +101,7 @@ fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
                 )),
             )
         }));
-
-    for (_, target_deps) in &unprocessed {
+    for (s, target_deps) in &unprocessed {
         let mut td = write(&target_deps.1);
         let mut is_branch = false;
         let mut deps: Vec<_> = td
@@ -238,7 +238,7 @@ fn run_recipe(
                 builddir.as_os_str(),
                 sourcedir.as_os_str(),
             );
-            execute(step, builddir, &mut die, filename.as_os_str());
+            execute(step, builddir, &mut die, &filename);
         }
     }
 }
@@ -249,8 +249,19 @@ fn needs_compiling(target: &Path, dependencies: &[PathBuf]) -> Result<bool, std:
     }
     let updatetime = target.metadata()?.modified()?;
     for dep in dependencies {
-        if dep.metadata()?.modified()? > updatetime {
-            return Ok(true);
+        let a = dep.metadata();
+        match a {
+            Ok(dep) => {
+                if dep.modified()? > updatetime {
+                    return Ok(true);
+                }
+            }
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    return Ok(true);
+                }
+                return Err(e);
+            }
         }
     }
     Ok(false)
@@ -260,9 +271,17 @@ fn execute(
     mut command: Vec<OsString>,
     working_dir: &Path,
     die: &mut Arc<AtomicBool>,
-    filename: &OsStr,
+    target: &Path,
 ) {
     let cmd = command.remove(0);
+
+    fs::create_dir_all(target.parent().unwrap()).unwrap_or_else(|e| {
+        error!(
+            "Unable to create parent directories for {:?} due to:\n{}",
+            target, e
+        );
+    });
+
     let results = Command::new(&cmd)
         .args(&command)
         .current_dir(
@@ -282,7 +301,11 @@ fn execute(
                     String::from_utf8_lossy(&out.stderr)
                 );
             }
-            println!("{:?}: {}", filename, String::from_utf8_lossy(&out.stderr));
+            info!(
+                "Building {:?}: {}",
+                target,
+                String::from_utf8_lossy(&out.stderr)
+            );
         }
         Err(e) => {
             die.store(true, Relaxed);
@@ -306,7 +329,7 @@ fn do_replacements(
             *s = target.as_os_str().into()
         } else if s == "$bd" {
             *s = builddir.into()
-        } else if s == "%sd" {
+        } else if s == "$sd" {
             *s = sourcedir.into()
         }
     });

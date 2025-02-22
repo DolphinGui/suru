@@ -1,4 +1,4 @@
-#include "lib.h"
+#include "lib/lib.h"
 #include <stdio.h>
 #include "config.h"
 
