@@ -11,5 +11,6 @@ config.h: makeheader.sh config.h.in
 % < *.o
 	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
 
+/* This generates the header file using the shell script*/
 %.h < *.sh %.h.in
 	$^ $@

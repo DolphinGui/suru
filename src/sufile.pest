@@ -21,3 +21,4 @@ vardecl = { token ~ ws* ~ "=" ~ (ws* ~ (implicit_var | expr))+ }
 
 file = { SOI ~ ws* ~ ((task | recipe | vardecl)? ~ NEWLINE)* ~ ws* ~ EOI }
 
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
