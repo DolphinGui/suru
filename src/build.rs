@@ -16,8 +16,9 @@ use log::{error, info};
 use threadpool::ThreadPool;
 
 use crate::once_fallible::OnceFallible;
+use crate::util::remove_suffix;
 use crate::{
-    parser::{TaskFile, Recipe, Task},
+    parser::{Recipe, Task, TaskFile},
     util::remove_prefix,
 };
 
@@ -45,7 +46,9 @@ struct Target {
 type DynTarget = RwLock<Target>;
 type Dependent = Arc<(String, DynTarget, OnceFallible)>;
 
-pub fn compile(input: TaskFile, builddir: &Path, sourcedir: &Path, mp: MultiProgress) {
+pub fn compile(mut input: TaskFile, builddir: &Path, sourcedir: &Path, mp: MultiProgress) {
+    input.tasks = fix_paths(input.tasks, sourcedir, builddir);
+    add_implicit(&mut input.tasks, &input.recipes, sourcedir);
     let progress = ProgressBar::new(input.tasks.len() as u64);
 
     mp.add(progress.clone());
@@ -92,6 +95,94 @@ fn write(d: &DynTarget) -> RwLockWriteGuard<'_, Target> {
 }
 fn read(d: &DynTarget) -> RwLockReadGuard<'_, Target> {
     d.read().expect("This section is single threaded")
+}
+
+fn fix_paths(
+    tasks: HashMap<String, Task>,
+    sourcedir: &Path,
+    builddir: &Path,
+) -> HashMap<String, Task> {
+    HashMap::from_iter(tasks.into_iter().map(|(f, t)| {
+        (
+            decannonicalize(f, sourcedir, builddir),
+            Task {
+                inputs: t
+                    .inputs
+                    .into_iter()
+                    .map(|d| decannonicalize(d, sourcedir, builddir))
+                    .collect(),
+            },
+        )
+    }))
+}
+
+fn decannonicalize(s: String, sourcedir: &Path, builddir: &Path) -> String {
+    let mut source = sourcedir.as_os_str().to_str().unwrap().to_owned();
+    if !source.ends_with('/') {
+        source.push('/');
+    }
+    let mut build = builddir.as_os_str().to_str().unwrap().to_owned();
+    if !build.ends_with('/') {
+        build.push('/');
+    }
+    if s.starts_with(&build) {
+        s.replace(&build, "")
+    } else if s.starts_with(&source) {
+        s.replace(&source, "")
+    } else {
+        s
+    }
+}
+
+fn add_implicit(
+    tasks: &mut HashMap<String, Task>,
+    recipes: &HashMap<String, Vec<Recipe>>,
+    sourcedir: &Path,
+) {
+    let mut implicit = Vec::new();
+    for (s, task) in tasks.iter() {
+        for dep in &task.inputs {
+            if !tasks.contains_key(dep) && !sourcedir.join(dep).exists() {
+                if let Some(r) = recipes.get(remove_prefix(dep)) {
+                    implicit.push((
+                        dep.clone(),
+                        Task {
+                            inputs: determine_deps(dep, &r, sourcedir),
+                        },
+                    ));
+                }
+            }
+        }
+    }
+
+    for (k, v) in implicit {
+        tasks.insert(k, v);
+    }
+}
+
+fn determine_deps<'a>(filename: &str, recipes: &[Recipe], sourcedir: &Path) -> Vec<String> {
+    let results: Vec<_> = recipes
+        .iter()
+        .filter(|r| {
+            r.templ_in.iter().all(|ext| {
+                sourcedir
+                    .join(remove_suffix(filename).to_string() + "." + ext)
+                    .exists()
+            })
+        })
+        .collect();
+    if results.len() > 1 {
+        error!("Multiple valid recipes for {}: {:?}", filename, recipes);
+        panic!();
+    } else if let [s] = results[..] {
+        s.templ_in
+            .iter()
+            .map(|ext| remove_suffix(filename).to_string() + "." + ext)
+            .collect()
+    } else {
+        error!("No valid recipes for {}", filename);
+        panic!();
+    }
 }
 
 fn get_roots(tasks: HashMap<String, Task>) -> Vec<(String, Dependent)> {
@@ -168,7 +259,7 @@ fn build_deps(
     }
 
     let a = recipes
-        .get(&remove_prefix(&target.0))
+        .get(remove_prefix(&target.0))
         .or_else(|| recipes.get("%"));
     if let Some(rs) = a {
         run_recipe(
@@ -225,11 +316,9 @@ fn run_recipe(
     let recipe = recipes
         .iter()
         .find(|r| {
-            r.inputs.iter().any(|input| {
-                dependencies
-                    .iter()
-                    .any(|dep| input == &remove_prefix(file(dep)))
-            })
+            dependencies
+                .iter()
+                .any(|d| is_dep_listed(file(d), target, r))
         })
         .unwrap_or_else(|| {
             die.store(true, Relaxed);
@@ -238,14 +327,7 @@ fn run_recipe(
     for step in &recipe.steps {
         let mut step = step.iter().map(|s| s.into()).collect();
         let filename = builddir.join(target);
-        let dependencies: Vec<_> = dependencies
-            .iter()
-            .map(|d| match d {
-                DependencyFile::Source(s) => sourcedir.join(s),
-                DependencyFile::Generated(g) => builddir.join(g),
-            })
-            .collect();
-        if needs_compiling(&filename, &dependencies).unwrap_or_else(|e| {
+        if needs_compiling(&filename, &dependencies, sourcedir, builddir).unwrap_or_else(|e| {
             die.store(true, Relaxed);
             panic!(
                 "IO error when trying to access metadata for {:?}: {}",
@@ -254,8 +336,8 @@ fn run_recipe(
         }) {
             let dependencies: Vec<_> = dependencies
                 .into_iter()
-                .filter(|d| recipe.inputs.contains(&remove_prefix(d.to_str().unwrap())))
-                .map(|d| d.into_os_string())
+                .filter(|d| is_dep_listed(file(d), target, recipe))
+                .map(|d| append_dep(d, sourcedir, builddir).as_os_str().to_owned())
                 .collect();
             do_replacements(
                 &mut step,
@@ -270,12 +352,29 @@ fn run_recipe(
     }
 }
 
-fn needs_compiling(target: &Path, dependencies: &[PathBuf]) -> Result<bool, std::io::Error> {
+fn is_dep_listed(dep: &str, target: &str, recipe: &Recipe) -> bool {
+    recipe
+        .templ_in
+        .iter()
+        .map(|ext| remove_suffix(target).to_string() + "." + ext)
+        .any(|f| f == dep)
+        || recipe.any_in.iter().any(|ext| dep.ends_with(ext))
+}
+
+fn needs_compiling(
+    target: &Path,
+    dependencies: &[DependencyFile],
+    sourcedir: &Path,
+    builddir: &Path,
+) -> Result<bool, std::io::Error> {
     if !target.exists() {
         return Ok(true);
     }
     let updatetime = target.metadata()?.modified()?;
-    for dep in dependencies {
+    for dep in dependencies
+        .iter()
+        .map(|d| append_dep(d, sourcedir, builddir))
+    {
         let a = dep.metadata();
         match a {
             Ok(dep) => {
@@ -294,12 +393,20 @@ fn needs_compiling(target: &Path, dependencies: &[PathBuf]) -> Result<bool, std:
     Ok(false)
 }
 
+fn append_dep(dep: &DependencyFile, sourcedir: &Path, builddir: &Path) -> PathBuf {
+    match dep {
+        DependencyFile::Source(s) => sourcedir.join(s),
+        DependencyFile::Generated(g) => builddir.join(g),
+    }
+}
+
 fn execute(
     mut command: Vec<OsString>,
     working_dir: &Path,
     die: &mut Arc<AtomicBool>,
     target: &Path,
 ) {
+    info!("Executing command {:?}", command);
     let cmd = command.remove(0);
 
     fs::create_dir_all(target.parent().unwrap()).unwrap_or_else(|e| {

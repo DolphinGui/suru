@@ -8,8 +8,8 @@ lib/lib.o: lib/lib.c config.h
 
 config.h: makeheader.sh config.h.in
 
-% < %.o
+% < *.o
 	g++ -o $@ $^ -O3 $(SOMEVARIABLE)
 
-%.h < %.sh %.h.in
+%.h < *.sh %.h.in
 	$^ $@

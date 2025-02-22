@@ -21,7 +21,8 @@ pub struct Task {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct Recipe {
-    pub inputs: HashSet<String>,
+    pub templ_in: Vec<String>,
+    pub any_in: Vec<String>,
     pub steps: Vec<Vec<String>>,
 }
 
@@ -64,7 +65,7 @@ pub fn parse(input: &str, context: &mut HashMap<String, Vec<String>>, base: &mut
 
 fn match_vardecl(var: &mut Pairs<Rule>, context: &mut HashMap<String, Vec<String>>) {
     let variable = var.next().unwrap_or_else(|| panic!("match vardecl fail"));
-    let result = var.flat_map(|expr| eval_expr(&expr, context)).collect();
+    let result = var.flat_map(|expr| match_step(&expr, context)).collect();
     context.insert(variable.as_str().to_string(), result);
 }
 
@@ -75,12 +76,19 @@ fn match_recipe(
     let target = recipe
         .next()
         .unwrap_or_else(|| panic!("match template fail"));
-    let mut inputs = HashSet::new();
+    let mut templ_in = Vec::new();
+    let mut any_in = Vec::new();
     let mut steps = Vec::new();
     for stuff in recipe {
         match stuff.as_rule() {
             Rule::template => {
-                inputs.insert(remove_prefix(stuff.as_str()));
+                if stuff.as_str().contains('*') {
+                    any_in.push(remove_prefix(stuff.as_str()).to_owned());
+                } else if stuff.as_str().contains('%') {
+                    templ_in.push(remove_prefix(stuff.as_str()).to_owned());
+                } else {
+                    panic!();
+                }
             }
             Rule::recipe_step => {
                 steps.push(
@@ -93,7 +101,16 @@ fn match_recipe(
             _ => panic!("This shouldn't happen"),
         }
     }
-    (remove_prefix(target.as_str()), Recipe { inputs, steps })
+    templ_in.dedup();
+    any_in.dedup();
+    (
+        remove_prefix(target.as_str()).to_owned(),
+        Recipe {
+            templ_in,
+            any_in,
+            steps,
+        },
+    )
 }
 
 fn match_step(step: &Pair<Rule>, context: &HashMap<String, Vec<String>>) -> Vec<String> {
@@ -162,13 +179,15 @@ mod test {
                 ".exe".into(),
                 vec![
                     Recipe {
-                        inputs: make_sset(&[".c"]),
+                        templ_in: make_svec(&[".c"]),
+                        any_in: vec![],
                         steps: vec![make_svec(&[
                             "gcc", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
                         ])],
                     },
                     Recipe {
-                        inputs: make_sset(&[".cpp"]),
+                        templ_in: make_svec(&[".cpp"]),
+                        any_in: vec![],
                         steps: vec![make_svec(&[
                             "g++", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
                         ])],

@@ -6,7 +6,7 @@ ws = _{ " " }
 token = { valid_char+ }
 expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | valid_char+ }
 
-template = { "%" ~ valid_char* }
+template = { ("%" | "*") ~ valid_char* }
 
 implicit_var = { "$@" | "$^" | "$bd" | "$sd" }
 
@@ -17,7 +17,7 @@ template ~ ws* ~ "<" ~ (ws* ~ template ~ ws*)* ~ (NEWLINE ~ recipe_step)+ }
 
 task = { expr ~ ws* ~ ":" ~ (ws* ~ expr)* }
 
-vardecl = { token ~ ws* ~ "=" ~ (ws* ~ expr)+ }
+vardecl = { token ~ ws* ~ "=" ~ (ws* ~ (implicit_var | expr))+ }
 
 file = { SOI ~ ws* ~ ((task | recipe | vardecl)? ~ NEWLINE)* ~ ws* ~ EOI }
 
