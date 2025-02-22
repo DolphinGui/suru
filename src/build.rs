@@ -12,8 +12,7 @@ use std::{
 };
 
 use indicatif::{MultiProgress, ProgressBar};
-use indicatif_log_bridge::LogWrapper;
-use log::{error, info, logger};
+use log::{error, info};
 use threadpool::ThreadPool;
 
 use crate::once_fallible::OnceFallible;

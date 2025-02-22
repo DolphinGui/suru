@@ -23,7 +23,6 @@ pub fn make_svec(s: &[&str]) -> Vec<String> {
 
 #[cfg(test)]
 use std::collections::HashSet;
-use std::ffi::OsStr;
 #[cfg(test)]
 pub fn make_sset(s: &[&str]) -> HashSet<String> {
 
