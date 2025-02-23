@@ -18,15 +18,3 @@ pub fn remove_suffix(file: &str) -> &str {
 pub fn make_svec(s: &[&str]) -> Vec<String> {
     s.iter().map(|s| s.to_string()).collect()
 }
-
-#[cfg(test)]
-use std::collections::HashSet;
-#[cfg(test)]
-pub fn make_sset(s: &[&str]) -> HashSet<String> {
-    let mut h = HashSet::new();
-    h.reserve(s.len());
-    for st in s.iter().map(|s| s.to_string()) {
-        h.insert(st);
-    }
-    h
-}

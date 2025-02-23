@@ -11,10 +11,12 @@ use std::{
     time::Duration,
 };
 
+use crossbeam::queue::SegQueue;
 use indicatif::{MultiProgress, ProgressBar};
 use log::{error, info};
 use threadpool::ThreadPool;
 
+use crate::hooks::{post_compile, pre_compile, HookResult};
 use crate::once_fallible::OnceFallible;
 use crate::util::remove_suffix;
 use crate::{
@@ -63,6 +65,8 @@ pub fn compile(mut input: TaskFile, builddir: &Path, sourcedir: &Path, mp: Multi
     let sourcedir = leak(sourcedir.to_path_buf());
     let die = Arc::new(AtomicBool::new(false));
 
+    let hook_state = leak(SegQueue::new());
+
     for arc in &roots {
         let arc = arc.1.clone();
         let die = die.clone();
@@ -78,12 +82,15 @@ pub fn compile(mut input: TaskFile, builddir: &Path, sourcedir: &Path, mp: Multi
                         &builddir,
                         die,
                         progress,
+                        &hook_state,
                     )
                 });
             }
         });
     }
+
     runner.join();
+    post_compile(hook_state, &builddir);
 }
 
 fn leak<T>(t: T) -> &'static T {
@@ -140,7 +147,7 @@ fn add_implicit(
     sourcedir: &Path,
 ) {
     let mut implicit = Vec::new();
-    for (s, task) in tasks.iter() {
+    for (_, task) in tasks.iter() {
         for dep in &task.inputs {
             if !tasks.contains_key(dep) && !sourcedir.join(dep).exists() {
                 if let Some(r) = recipes.get(remove_prefix(dep)) {
@@ -246,6 +253,7 @@ fn build_deps(
     builddir: &'static Path,
     die: Arc<AtomicBool>,
     progress: ProgressBar,
+    hook_out: &'static SegQueue<HookResult>,
 ) -> bool {
     if die.load(Relaxed) {
         return false;
@@ -270,6 +278,7 @@ fn build_deps(
             builddir,
             die.clone(),
             &progress,
+            hook_out,
         );
     } else {
         panic!(
@@ -296,6 +305,7 @@ fn build_deps(
                         builddir,
                         die,
                         progress,
+                        hook_out,
                     )
                 });
             }
@@ -312,6 +322,7 @@ fn run_recipe(
     builddir: &Path,
     mut die: Arc<AtomicBool>,
     progress: &ProgressBar,
+    hook_out: &'static SegQueue<HookResult>,
 ) {
     let recipe = recipes
         .iter()
@@ -326,27 +337,30 @@ fn run_recipe(
         });
     for step in &recipe.steps {
         let mut step = step.iter().map(|s| s.into()).collect();
-        let filename = builddir.join(target);
-        if needs_compiling(&filename, &dependencies, sourcedir, builddir).unwrap_or_else(|e| {
+        let target_file = builddir.join(target);
+        let dep_paths: Vec<_> = dependencies
+            .into_iter()
+            .filter(|d| is_dep_listed(file(d), target, recipe))
+            .map(|d| append_dep(d, sourcedir, builddir))
+            .collect();
+        do_replacements(
+            &mut step,
+            &target_file,
+            &dep_paths,
+            builddir.as_os_str(),
+            sourcedir.as_os_str(),
+        );
+
+        pre_compile(hook_out, &step, &dep_paths, &target_file, sourcedir);
+
+        if needs_compiling(&target_file, &dependencies, sourcedir, builddir).unwrap_or_else(|e| {
             die.store(true, Relaxed);
             panic!(
                 "IO error when trying to access metadata for {:?}: {}",
-                filename, e
+                target_file, e
             );
         }) {
-            let dependencies: Vec<_> = dependencies
-                .into_iter()
-                .filter(|d| is_dep_listed(file(d), target, recipe))
-                .map(|d| append_dep(d, sourcedir, builddir).as_os_str().to_owned())
-                .collect();
-            do_replacements(
-                &mut step,
-                &filename,
-                &dependencies,
-                builddir.as_os_str(),
-                sourcedir.as_os_str(),
-            );
-            execute(step, builddir, &mut die, &filename);
+            execute(step, builddir, &mut die, &target_file);
             progress.tick();
         }
     }
@@ -454,7 +468,7 @@ fn execute(
 fn do_replacements(
     s: &mut Vec<OsString>,
     target: &Path,
-    dependencies: &[OsString],
+    dependencies: &[PathBuf],
     builddir: &OsStr,
     sourcedir: &OsStr,
 ) {
@@ -469,6 +483,9 @@ fn do_replacements(
     });
 
     while let Some(p) = s.iter().position(|str| str == "$^") {
-        s.splice(p..p + 1, dependencies.to_owned());
+        s.splice(
+            p..p + 1,
+            dependencies.iter().map(|d| d.as_os_str().to_owned()),
+        );
     }
 }

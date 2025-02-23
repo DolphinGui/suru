@@ -149,7 +149,7 @@ fn fst(vec: &Vec<String>) -> String {
 
 #[cfg(test)]
 mod test {
-    use crate::util::{make_sset, make_svec};
+    use crate::util::make_svec;
 
     use super::*;
 
