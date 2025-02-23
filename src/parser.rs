@@ -31,9 +31,15 @@ pub struct TaskFile {
     pub recipes: HashMap<String, Vec<Recipe>>,
 }
 
-pub fn parse(input: &str, context: &mut HashMap<String, Vec<String>>, base: &mut TaskFile) {
+pub fn parse(
+    input: &str,
+    context: &mut HashMap<String, Vec<String>>,
+    base: &mut TaskFile,
+    filename: &str,
+) {
     let TaskFile { tasks, recipes } = base;
-    let mut input = TaskParser::parse(Rule::file, input).unwrap_or_else(|e| panic!("{}", e));
+    let mut input = TaskParser::parse(Rule::file, input)
+        .unwrap_or_else(|e| panic!("error parsing {}, {}", filename, e));
     let file = input.next().unwrap_or_else(|| (panic!()));
     for statement in file.into_inner() {
         match statement.as_rule() {
@@ -155,7 +161,7 @@ mod test {
 
     #[test]
     fn try_parse() {
-        let f = include_str!("tasks.su");
+        let f = include_str!("test/tasks.su");
         let mut context = HashMap::new();
         context.insert(
             "LINKFLAGS".into(),
@@ -166,45 +172,44 @@ mod test {
         );
 
         let mut result = TaskFile::default();
-        parse(f, &mut context, &mut result);
+        parse(f, &mut context, &mut result, "test");
         let expected = TaskFile {
             tasks: HashMap::from([(
                 "a.exe".into(),
                 Task {
-                    inputs: make_svec(&["main.o", "../folder/f.o"]),
+                    inputs: make_svec(&["main.o", "lib/lib.o"]),
                 },
             )]),
             recipes: HashMap::from([(
-                ".exe".into(),
+                "o".into(),
                 vec![
                     Recipe {
-                        templ_in: make_svec(&[".c"]),
+                        templ_in: make_svec(&["c"]),
                         any_in: vec![],
                         steps: vec![make_svec(&[
-                            "gcc", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
+                            "gcc", "-c", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
                         ])],
                     },
                     Recipe {
-                        templ_in: make_svec(&[".cpp"]),
+                        templ_in: make_svec(&["cpp"]),
                         any_in: vec![],
                         steps: vec![make_svec(&[
-                            "g++", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
+                            "g++", "-c", "-o", "$@", "$^", "-O3", "-MMD", "-LTO", "-O3",
                         ])],
                     },
                 ],
             )]),
         };
-        assert!(
-            result == expected,
-            "Expected is not equal parsed,\n got {:?},\n expected {:?}",
-            result,
-            expected
+        assert_eq!(
+            result, expected,
+            "Expected {:#?}\ngot {:#?}",
+            expected, result
         );
     }
 
     #[test]
     fn parse_file() {
-        let f = include_str!("tasks.su");
+        let f = include_str!("test/tasks.su");
         let v = TaskParser::parse(Rule::file, f).unwrap_or_else(|e| panic!("{}", e));
         for p in v {
             println!("{:?}", p);
@@ -214,6 +219,14 @@ mod test {
     #[test]
     fn parse_expr() {
         let var = "$(upper $(FLAGS))";
+        let mut v = TaskParser::parse(Rule::expr, var).unwrap_or_else(|e| panic!("{}", e));
+        let pair = v.next();
+        println!("{:?}", pair);
+    }
+
+    #[test]
+    fn parse_expr_win() {
+        let var = "C:\\filename";
         let mut v = TaskParser::parse(Rule::expr, var).unwrap_or_else(|e| panic!("{}", e));
         let pair = v.next();
         println!("{:?}", pair);

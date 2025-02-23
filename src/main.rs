@@ -60,7 +60,7 @@ fn main() {
     let prologue = include_str!("prologue.su");
     let mut buildstate = Default::default();
 
-    parse(prologue, &mut context, &mut buildstate);
+    parse(prologue, &mut context, &mut buildstate, "prologue");
 
     let mut depfiles = Vec::new();
     search_dependencies(&build_root, &mut depfiles);
@@ -75,13 +75,23 @@ fn main() {
                     e
                 );
             }
-            Ok(depfile) => {
-                parse(&preprocess(depfile), &mut context, &mut buildstate);
+            Ok(contents) => {
+                parse(
+                    &preprocess(contents),
+                    &mut context,
+                    &mut buildstate,
+                    &depfile.file_name().unwrap().to_string_lossy(),
+                );
             }
         }
     }
 
-    parse(&preprocess(tasks), &mut context, &mut buildstate);
+    parse(
+        &preprocess(tasks),
+        &mut context,
+        &mut buildstate,
+        &taskfile.file_name().unwrap().to_string_lossy(),
+    );
 
     compile(
         buildstate,
@@ -155,5 +165,5 @@ fn search_dependencies(search_root: &Path, out: &mut Vec<PathBuf>) {
 
 fn preprocess(file: Vec<u8>) -> String {
     let file = String::from_utf8(file).expect("Build file is not utf-8");
-    file.replace("\\\n", " ")
+    file.replace("\\\n", " ") + "\n"
 }
