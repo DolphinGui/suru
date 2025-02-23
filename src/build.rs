@@ -124,21 +124,26 @@ fn fix_paths(
 }
 
 fn decannonicalize(s: String, sourcedir: &Path, builddir: &Path) -> String {
-    let mut source = sourcedir.as_os_str().to_str().unwrap().to_owned();
-    if !source.ends_with('/') {
-        source.push('/');
+    let n = Path::new(&s);
+    if n.starts_with(&builddir) {
+        return n
+            .strip_prefix(builddir)
+            .unwrap()
+            .as_os_str()
+            .to_str()
+            .unwrap()
+            .to_owned();
     }
-    let mut build = builddir.as_os_str().to_str().unwrap().to_owned();
-    if !build.ends_with('/') {
-        build.push('/');
+    if n.starts_with(&sourcedir) {
+        return n
+            .strip_prefix(sourcedir)
+            .unwrap()
+            .as_os_str()
+            .to_str()
+            .unwrap()
+            .to_owned();
     }
-    if s.starts_with(&build) {
-        s.replace(&build, "")
-    } else if s.starts_with(&source) {
-        s.replace(&source, "")
-    } else {
-        s
-    }
+    s
 }
 
 fn add_implicit(
@@ -333,7 +338,10 @@ fn run_recipe(
         })
         .unwrap_or_else(|| {
             die.store(true, Relaxed);
-            panic!("Unable to find recipe to match {}", target);
+            panic!(
+                "Unable to find recipe to build {:?} for {}, Recipes:{:#?}",
+                dependencies, target, recipes
+            );
         });
     for step in &recipe.steps {
         let mut step = step.iter().map(|s| s.into()).collect();

@@ -3,8 +3,8 @@ valid_char = _{
     | "\"" | "\'" | "#"
 }
 ws = _{ " " }
-token = { valid_char+ }
-expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | valid_char+ }
+token = { (LETTER ~ ":\\")? ~ valid_char+ }
+expr = { ("$(" ~ (ws* ~ expr ~ ws*)+ ~ ")") | ((LETTER ~ ":\\")? ~ valid_char+) }
 
 template = { ("%" | "*") ~ valid_char* }
 

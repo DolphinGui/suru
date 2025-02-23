@@ -164,6 +164,9 @@ fn search_dependencies(search_root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn preprocess(file: Vec<u8>) -> String {
-    let file = String::from_utf8(file).expect("Build file is not utf-8");
-    file.replace("\\\n", " ") + "\n"
+    String::from_utf8(file)
+        .expect("Build file is not utf-8")
+        .replace("\\\n", " ")
+        .replace("\\\r\n", " ")
+        + "\n"
 }

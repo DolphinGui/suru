@@ -243,6 +243,18 @@ mod test {
     }
 
     #[test]
+    fn parse_task_win() {
+        let task = r#"C:\build\lib.o: \
+     C:\simple\lib.cpp \
+     C:\simple\lib.hpp"#;
+        let v = TaskParser::parse(Rule::task, task).unwrap_or_else(|e| panic!("{}", e));
+        println!("Parsing thing");
+        for p in v {
+            println!("[{:?}]", p);
+        }
+    }
+
+    #[test]
     fn parse_recipe() {
         let recipe = "%.h < %.h.in\n\tgenerate.py $@ $^";
         let v = TaskParser::parse(Rule::recipe, recipe).unwrap_or_else(|e| panic!("{}", e));
@@ -258,5 +270,12 @@ mod test {
         for p in v {
             println!("[{:?}]", p);
         }
+    }
+
+    #[test]
+    fn parse_depfile_win() {
+        let file = include_str!("test/lib.d");
+        let f = TaskParser::parse(Rule::file, file).unwrap_or_else(|e| panic!("{}", e));
+        println!("{:#?}", f);
     }
 }
