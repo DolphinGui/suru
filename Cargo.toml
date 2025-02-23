@@ -1,7 +1,7 @@
 [package]
 name = "suru"
 description = "A modern replacement for make"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2021"
 license-file = "LICENSE.md"
 readme = "README.md"
